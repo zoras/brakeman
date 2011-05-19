@@ -6,34 +6,49 @@ rescue LoadError => e
   exit!
 end
 
-#This is from the rails_xss plugin,
-#except we don't care about plain text.
+#This is from Rails 3 version of the Erubis handler
 class RailsXSSErubis < ::Erubis::Eruby
   include Erubis::NoTextEnhancer
 
   #Initializes output buffer.
   def add_preamble(src)
-    src << "@output_buffer = ActionView::SafeBuffer.new;\n"
+    # src << "_buf = ActionView::SafeBuffer.new;\n"
   end
 
   #This does nothing.
   def add_text(src, text)
-    #    src << "@output_buffer << ('" << escape_text(text) << "'.html_safe!);"
+    # src << "@output_buffer << ('" << escape_text(text) << "'.html_safe!);"
   end
 
-  #Add an expression to the output buffer _without_ escaping.
+  BLOCK_EXPR = /\s+(do|\{)(\s*\|[^|]*\|)?\s*\Z/
+
   def add_expr_literal(src, code)
-    src << '@output_buffer << ((' << code << ').to_s);'
+    if code =~ BLOCK_EXPR
+      src << '@output_buffer.append= ' << code
+    else
+      src << '@output_buffer.append= (' << code << ');'
+    end
   end
 
-  #Add an expression to the output buffer after escaping it.
+  def add_stmt(src, code)
+    if code =~ BLOCK_EXPR
+      src << '@output_buffer.append_if_string= ' << code
+    else
+      super
+    end
+  end
+
   def add_expr_escaped(src, code)
-    src << '@output_buffer << ' << escaped_expr(code) << ';'
+    if code =~ BLOCK_EXPR
+      src << "@output_buffer.safe_append= " << code
+    else
+      src << "@output_buffer.safe_concat(" << code << ");"
+    end
   end
 
   #Add code to output buffer.
   def add_postamble(src)
-    src << '@output_buffer.to_s'
+    # src << '_buf.to_s'
   end
 end
 
@@ -41,3 +56,8 @@ end
 class ScannerErubis < Erubis::Eruby
   include Erubis::NoTextEnhancer
 end
+
+class ErubisEscape < ScannerErubis
+  include Erubis::EscapeEnhancer
+end
+
