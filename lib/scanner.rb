@@ -141,10 +141,12 @@ class Scanner
         if type == :erb
           if tracker.config[:escape_html]
             initialize_erubis unless @initialized_erubis
+            type = :erubis
             src = RailsXSSErubis.new(File.read(f)).src
           elsif tracker.config[:erubis]
             initialize_erubis unless @initialized_erubis
             src = ScannerErubis.new(File.read(f)).src
+            type = :erubis
           else
             src = ERB.new(File.read(f), nil, "-").src
           end
