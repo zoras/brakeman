@@ -14,9 +14,11 @@ class RailsXSSErubis < ::Erubis::Eruby
   end
 
   def add_text(src, text)
-    if text.include? "\n"
+    if text == "\n"
+      src << "\n"
+    elsif text.include? "\n"
       lines = text.split("\n")
-      if text.match /\n\z/
+      if text.match(/\n\z/)
         lines.each do |line|
           src << "@output_buffer << ('" << escape_text(line) << "'.html_safe!);\n"
         end
