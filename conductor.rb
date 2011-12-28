@@ -51,7 +51,7 @@ class Conductor
       until @done do
         ps = "ps -p #{Process.pid} -opcpu | sed '1 d'"
         ps_out = `#{ps}`
-        puts "\n#{Time.now} #{Process.times} #{Thread.list.count} threads #{ps_out}"
+        $stderr.puts "\n#{Time.now} #{Process.times} #{Thread.list.count} threads #{ps_out}"
         sleep 1
       end
     end
