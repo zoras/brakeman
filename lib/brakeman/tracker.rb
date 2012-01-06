@@ -139,17 +139,19 @@ class Brakeman::Tracker
   end
 
   def index_call_sites
-    finder = Brakeman::FindAllCalls.new self
+    Brakeman.benchmark :index_call_sites do
+      finder = Brakeman::FindAllCalls.new self
 
-    self.each_method do |definition, set_name, method_name|
-      finder.process_source definition, set_name, method_name
+      self.each_method do |definition, set_name, method_name|
+        finder.process_source definition, set_name, method_name
+      end
+
+      self.each_template do |name, template|
+        finder.process_source template[:src], nil, nil, template
+      end
+
+      @call_index = Brakeman::CallIndex.new finder.calls
     end
-
-    self.each_template do |name, template|
-      finder.process_source template[:src], nil, nil, template
-    end
-
-    @call_index = Brakeman::CallIndex.new finder.calls
   end
 
   #Clear information related to templates.
