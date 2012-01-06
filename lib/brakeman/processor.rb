@@ -48,10 +48,8 @@ module Brakeman
 
     #Process variable aliasing in controller source and save it in the
     #tracker.
-    def process_controller_alias src
-      Brakeman.benchmark :controller_alias_processing do
-        ControllerAliasProcessor.new(@tracker).process src
-      end
+    def process_controller_alias src, only_method = nil
+      ControllerAliasProcessor.new(@tracker, only_method).process src
     end
 
     #Process a model source

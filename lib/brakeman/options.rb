@@ -27,20 +27,20 @@ module Brakeman::Options
           options[:parallel_checks] = false
         end
 
-        opts.on "--no-progress", "Do not show progress reports" do
-          options[:report_progress] = false
+        opts.on "--[no-]progress", "Show progress reports" do |progress|
+          options[:report_progress] = progress
         end
 
         opts.on "-p", "--path PATH", "Specify path to Rails application" do |path|
           options[:app_path] = File.expand_path path
         end
 
-        opts.on "-q", "--quiet", "Suppress informational messages" do
-          options[:quiet] = true
+        opts.on "-q", "--[no-]quiet", "Suppress informational messages" do |quiet|
+          options[:quiet] = quiet
         end
 
-        opts.on( "-z", "--exit-on-warn", "Exit code is non-zero if warnings found") do |s|
-          options[:exit_on_warn] = s
+        opts.on( "-z", "--exit-on-warn", "Exit code is non-zero if warnings found") do
+          options[:exit_on_warn] = true
         end
 
         opts.on "-3", "--rails3", "Force Rails 3 mode" do
@@ -126,7 +126,7 @@ module Brakeman::Options
           options[:html_style] = File.expand_path file
         end
 
-        opts.on "-l", "--[no]-combine-locations", "Combine warning locations (Default)" do |combine|
+        opts.on "-l", "--[no-]combine-locations", "Combine warning locations (Default)" do |combine|
           options[:combine_locations] = combine
         end
 
@@ -179,6 +179,10 @@ module Brakeman::Options
 
         opts.on "-k", "--checks", "List all available vulnerability checks" do
           options[:list_checks] = true
+        end
+
+        opts.on "--rake", "Create rake task to run Brakeman" do
+          options[:install_rake_task] = true
         end
 
         opts.on "-v", "--version", "Show Brakeman version" do

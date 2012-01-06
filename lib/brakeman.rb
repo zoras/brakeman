@@ -63,6 +63,7 @@ module Brakeman
   #  * :skip_libs - do not process lib/ directory (default: false)
   #  * :skip_checks - checks not to run (run all if not specified)
   #
+  #Alternatively, just supply a path as a string.
   def self.run options
     options = set_options options
 
@@ -75,6 +76,10 @@ module Brakeman
   end
 
   def self.set_options options
+    if options.is_a? String
+      options = { :app_path => options }
+    end
+
     options = load_options(options[:config_file]).merge! options
     options = get_defaults.merge! options
     options[:output_format] = get_output_format options
@@ -169,7 +174,33 @@ module Brakeman
     require 'brakeman/scanner'
     $stderr.puts "Available Checks:"
     $stderr.puts "-" * 30
-    $stderr.puts Checks.checks.map { |c| c.to_s }.sort.join "\n"
+    $stderr.puts Checks.checks.map { |c| c.to_s.match(/^Brakeman::(.*)$/)[1] }.sort.join "\n"
+  end
+
+  def self.install_rake_task
+    if not File.exists? "Rakefile"
+      abort "No Rakefile detected"
+    elsif File.exists? "lib/tasks/brakeman.rake"
+      abort "Task already exists"
+    end
+
+    require 'fileutils'
+
+    if not File.exists? "lib/tasks"
+      warn "Creating lib/tasks"
+      FileUtils.mkdir_p "lib/tasks"
+    end
+
+    path = File.expand_path(File.dirname(__FILE__))
+
+    FileUtils.cp "#{path}/brakeman/brakeman.rake", "lib/tasks/brakeman.rake"
+
+    if File.exists? "lib/tasks/brakeman.rake"
+      warn "Task created in lib/tasks/brakeman.rake"
+      warn "Usage: rake brakeman:run[output_file]"
+    else
+      warn "Could not create task"
+    end
   end
 
   def self.dump_config options
@@ -246,5 +277,19 @@ module Brakeman
     end
 
     tracker
+  end
+
+  def self.rescan tracker, files
+    scanner = Scanner.new tracker.options, tracker.processor
+
+    changed = false
+
+    files.each do |path|
+      if scanner.rescan_file File.expand_path(path)
+        changed = true
+      end
+    end
+
+    changed
   end
 end
