@@ -11,13 +11,13 @@ class Rails2Tests < Test::Unit::TestCase
       @expected ||= {
         :controller => 1,
         :model => 2,
-        :template => 15,
+        :template => 17,
         :warning => 18 }
     else
       @expected ||= {
         :controller => 1,
         :model => 2,
-        :template => 15,
+        :template => 17,
         :warning => 19 }
     end
   end
@@ -50,7 +50,7 @@ class Rails2Tests < Test::Unit::TestCase
       :warning_type => "Command Injection",
       :line => 34,
       :message => /^Possible command injection/,
-      :confidence => 1,
+      :confidence => 0,
       :file => /home_controller\.rb/
   end
 
@@ -345,6 +345,15 @@ class Rails2Tests < Test::Unit::TestCase
       :file => /test_cookie\.html\.erb/
   end
 
+  def test_cookie_from_controller
+    assert_warning :type => :template,
+      :warning_type => "Cross Site Scripting",
+      :line => 3,
+      :message => /^Unescaped cookie value/,
+      :confidence => 0,
+      :file => /test_cookie\.html\.erb/
+  end
+
   #Check for params that look like params[:x][:y]
   def test_params_multidimensional
     assert_warning :type => :template,
@@ -363,6 +372,15 @@ class Rails2Tests < Test::Unit::TestCase
       :message => /^Unescaped cookie value/,
       :confidence => 0,
       :file => /test_cookie\.html\.erb/
+  end
+
+  def test_xss_in_unused_template
+    assert_warning :type => :template,
+      :warning_type => "Cross Site Scripting",
+      :line => 1,
+      :message => "Unescaped parameter value near line 1: params[:blah]",
+      :confidence => 0,
+      :file => /not_used\.html\.erb/
   end
 end
 

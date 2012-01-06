@@ -118,7 +118,7 @@ class Brakeman::Tracker
   #    User.human.active.all(...)
   #
   def find_call options
-    index_calls unless @call_index
+    index_call_sites unless @call_index
     @call_index.find_calls options
   end
 
@@ -139,16 +139,61 @@ class Brakeman::Tracker
   end
 
   def index_call_sites
-    finder = Brakeman::FindAllCalls.new self
+    Brakeman.benchmark :index_call_sites do
+      finder = Brakeman::FindAllCalls.new self
 
-    self.each_method do |definition, set_name, method_name|
-      finder.process_source definition, set_name, method_name
+      self.each_method do |definition, set_name, method_name|
+        finder.process_source definition, set_name, method_name
+      end
+
+      self.each_template do |name, template|
+        finder.process_source template[:src], nil, nil, template
+      end
+
+      @call_index = Brakeman::CallIndex.new finder.calls
+    end
+  end
+
+  #Clear information related to templates.
+  #If :only_rendered => true, will delete templates rendered from
+  #controllers (but not those rendered from other templates)
+  def reset_templates options = { :only_rendered => false }
+    if options[:only_rendered]
+      @templates.delete_if do |name, template|
+        name.to_s.include? "Controller#"
+      end
+    else
+      @templates = {}
+    end
+    @processed = nil
+    @rest = nil
+    @template_cache.clear
+  end
+
+  #Clear information related to template
+  def reset_template name
+    name = name.to_sym
+    @templates.delete name
+    @processed = nil
+    @rest = nil
+  end
+
+  #Clear information related to model
+  def reset_model path
+    model_name = nil
+
+    @models.each do |name, model|
+      if model[:file] == path
+        model_name = name
+        break
+      end
     end
 
-    self.each_template do |name, template|
-      finder.process_source template[:src], nil, nil, template
-    end
+    @models.delete model_name
+  end
 
-    @call_index = Brakeman::CallIndex.new finder.calls
+  #Clear information about routes
+  def reset_routes
+    @routes = {}
   end
 end
