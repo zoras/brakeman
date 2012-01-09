@@ -280,16 +280,8 @@ module Brakeman
   end
 
   def self.rescan tracker, files
-    scanner = Scanner.new tracker.options, tracker.processor
+    require 'brakeman/rescanner'
 
-    changed = false
-
-    files.each do |path|
-      if scanner.rescan_file File.expand_path(path)
-        changed = true
-      end
-    end
-
-    changed
+    Rescanner.new(tracker.options, tracker.processor, files).recheck
   end
 end
