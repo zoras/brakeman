@@ -80,6 +80,8 @@ module Brakeman
       options = { :app_path => options }
     end
 
+    options[:app_path] = File.expand_path(options[:app_path])
+
     options = load_options(options[:config_file]).merge! options
     options = get_defaults.merge! options
     options[:output_format] = get_output_format options
@@ -280,16 +282,8 @@ module Brakeman
   end
 
   def self.rescan tracker, files
-    scanner = Scanner.new tracker.options, tracker.processor
+    require 'brakeman/rescanner'
 
-    changed = false
-
-    files.each do |path|
-      if scanner.rescan_file File.expand_path(path)
-        changed = true
-      end
-    end
-
-    changed
+    Rescanner.new(tracker.options, tracker.processor, files).recheck
   end
 end
