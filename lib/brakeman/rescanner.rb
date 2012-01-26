@@ -45,7 +45,7 @@ class Brakeman::Rescanner < Brakeman::Scanner
 
     SCAN_ORDER.each do |type|
       paths_by_type[type].each do |path|
-        warn "Rescanning #{path} as #{type}" if tracker.options[:debug]
+        Brakeman.debug "Rescanning #{path} as #{type}"
 
         if rescan_file path, type
           @changes = true
@@ -243,5 +243,13 @@ class Brakeman::RescanReport
   #Returns a hash of arrays for :new and :fixed warnings
   def diff
     @diff ||= @new_results.diff(@old_results)
+  end
+
+  def to_s
+    <<-OUTPUT
+Total warnings: #{all_warnings.length}
+Fixed warnings: #{fixed_warnings.length}
+New warnings: #{new_warnings.length}
+    OUTPUT
   end
 end

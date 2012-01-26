@@ -11,13 +11,13 @@ class Rails2Tests < Test::Unit::TestCase
       @expected ||= {
         :controller => 1,
         :model => 2,
-        :template => 17,
+        :template => 18,
         :warning => 21 }
     else
       @expected ||= {
         :controller => 1,
         :model => 2,
-        :template => 17,
+        :template => 18,
         :warning => 22 }
     end
   end
@@ -270,6 +270,25 @@ class Rails2Tests < Test::Unit::TestCase
       :confidence => 0,
       :file => /test_model\.html\.erb/
   end
+
+  def test_model_in_link_to
+    assert_warning :type => :template,
+      :warning_type => "Cross Site Scripting",
+      :line => 7,
+      :message => /^Unescaped model attribute in link_to/,
+      :confidence => 0,
+      :file => /test_model\.html\.erb/
+  end
+
+  def test_escaped_parameter_in_link_to
+    assert_no_warning :type => :template,
+      :warning_type => "Cross Site Scripting",
+      :line => 10,
+      :message => /^Unescaped parameter value in link_to/,
+      :confidence => 1,
+      :file => /test_params\.html\.erb/
+  end
+
 
   def test_filter
     assert_warning :type => :template,

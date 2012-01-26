@@ -6,7 +6,7 @@ class Brakeman::CheckTranslateBug < Brakeman::BaseCheck
   Brakeman::Checks.add self
 
   def run_check
-    if (version_between?('2.3.0', '2.3.99') and tracker.options[:escape_html]) or 
+    if (version_between?('2.3.0', '2.3.99') and tracker.config[:escape_html]) or
         version_between?('3.0.0', '3.0.10') or
         version_between?('3.1.0', '3.1.1')
 
@@ -34,7 +34,7 @@ class Brakeman::CheckTranslateBug < Brakeman::BaseCheck
   end
 
   def uses_translate?
-    debug_info "Finding calls to translate() or t()"
+    Brakeman.debug "Finding calls to translate() or t()"
 
     not tracker.find_call(:target => nil, :methods => [:t, :translate]).empty?
   end
