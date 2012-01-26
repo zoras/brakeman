@@ -2,10 +2,12 @@ require 'rubygems'
 require 'yaml'
 require 'set'
 require 'benchmark' #In case this is not run from conductor.rb
+require 'thread'
 
 module Brakeman
 
   @benchmarks = {}
+  @mutex = Mutex.new
 
   def self.benchmark name
     result = nil
@@ -14,10 +16,12 @@ module Brakeman
       result = yield
     end
 
-    if @benchmarks[name]
-      @benchmarks[name] += times
-    else
-      @benchmarks[name] = times
+    @mutex.synchronize do
+      if @benchmarks[name]
+        @benchmarks[name] += times
+      else
+        @benchmarks[name] = times
+      end
     end
 
     result
