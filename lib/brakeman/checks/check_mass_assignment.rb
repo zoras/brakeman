@@ -12,7 +12,7 @@ class Brakeman::CheckMassAssignment < Brakeman::BaseCheck
 
     models = []
     tracker.models.each do |name, m|
-      if parent?(tracker, m, :"ActiveRecord::Base") and m[:attr_accessible].nil?
+      if parent?(m, :"ActiveRecord::Base") and m[:attr_accessible].nil?
         models << name
       end
     end
@@ -21,7 +21,7 @@ class Brakeman::CheckMassAssignment < Brakeman::BaseCheck
 
     @results = Set.new
 
-    debug_info "Finding possible mass assignment calls on #{models.length} models"
+    Brakeman.debug "Finding possible mass assignment calls on #{models.length} models"
     calls = tracker.find_call :chained => true, :targets => models, :methods => [:new,
       :attributes=, 
       :update_attribute, 
@@ -30,7 +30,7 @@ class Brakeman::CheckMassAssignment < Brakeman::BaseCheck
       :create,
       :create!]
 
-    debug_info "Processing possible mass assignment calls"
+    Brakeman.debug "Processing possible mass assignment calls"
     calls.each do |result|
       process_result result
     end
@@ -45,7 +45,13 @@ class Brakeman::CheckMassAssignment < Brakeman::BaseCheck
     if check and not @results.include? call
       @results << call
 
-      if include_user_input? call[3] and not hash? call[3][1]
+      model = tracker.models[res[:chain].first]
+
+      attr_protected = (model and model[:options][:attr_protected])
+
+      if attr_protected and tracker.options[:ignore_attr_protected]
+        return
+      elsif include_user_input? call[3] and not hash? call[3][1] and not attr_protected
         confidence = CONFIDENCE[:high]
       else
         confidence = CONFIDENCE[:low]

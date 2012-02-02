@@ -14,7 +14,7 @@ class Brakeman::CheckSQL < Brakeman::BaseCheck
   def run_check
     @rails_version = tracker.config[:rails_version]
 
-    debug_info "Finding possible SQL calls on models"
+    Brakeman.debug "Finding possible SQL calls on models"
     if tracker.options[:rails3]
       calls = tracker.find_call :targets => tracker.models.keys,
         :methods => /^(find.*|first|last|all|where|order|group|having)$/,
@@ -25,28 +25,95 @@ class Brakeman::CheckSQL < Brakeman::BaseCheck
         :chained => true
     end
 
-    debug_info "Finding possible SQL calls with no target"
+    Brakeman.debug "Finding possible SQL calls with no target"
     calls.concat tracker.find_call(:target => nil, :method => /^(find.*|last|first|all|count|sum|average|minumum|maximum|count_by_sql)$/)
 
-    debug_info "Finding possible SQL calls using constantized()"
+    Brakeman.debug "Finding possible SQL calls using constantized()"
     calls.concat tracker.find_call(:method => /^(find.*|last|first|all|count|sum|average|minumum|maximum|count_by_sql)$/).select { |result| constantize_call? result }
 
-    debug_info "Processing possible SQL calls"
+    Brakeman.debug "Finding calls to named_scope or scope"
+    calls.concat find_scope_calls
+
+    Brakeman.debug "Processing possible SQL calls"
     calls.each do |c|
       process_result c
     end
   end
 
+  #Find calls to named_scope() or scope() in models
+  def find_scope_calls
+    scope_calls = []
+
+    if version_between? "2.1.0", "3.0.9"
+      tracker.models.each do |name, model|
+        if model[:options][:named_scope]
+          model[:options][:named_scope].each do |args|
+            call = Sexp.new(:call, nil, :named_scope, args).line(args.line)
+            scope_calls << { :call => call, :location => [:class, name ], :method => :named_scope }
+          end
+        end
+       end
+    elsif version_between? "3.1.0", "3.9.9"
+      tracker.models.each do |name, model|
+        if model[:options][:scope]
+          model[:options][:scope].each do |args|
+            second_arg = args[2]
+
+            if second_arg.node_type == :iter and
+              (second_arg[-1].node_type == :block or second_arg[-1].node_type == :call)
+              process_scope_with_block name, args
+            elsif second_arg.node_type == :call
+              call = second_arg
+              scope_calls << { :call => call, :location => [:class, name ], :method => call[2] }
+            else
+              call = Sexp.new(:call, nil, :scope, args).line(args.line)
+              scope_calls << { :call => call, :location => [:class, name ], :method => :scope }
+            end
+          end
+        end
+      end
+    end
+
+    scope_calls
+  end
+
+  def process_scope_with_block model_name, args
+    scope_name = args[1][1]
+    block = args[-1][-1]
+
+    #Search lambda for calls to query methods
+    if block.node_type == :block
+      find_calls = Brakeman::FindAllCalls.new tracker
+
+      find_calls.process_source block, model_name, scope_name
+
+      find_calls.calls.each do |call|
+        if call[:method].to_s =~ /^(find.*|first|last|all|where|order|group|having)$/
+          puts "Looks like #{call.inspect}"
+          process_result call
+        end
+      end
+    elsif block.node_type == :call
+      process_result :target => block[1], :method => block[2], :call => block, :location => [:class, model_name, scope_name]
+    end
+  end
+
   #Process result from Tracker#find_call.
   def process_result result
+    #TODO: I don't like this method at all. It's a pain to figure out what
+    #it is actually doing...
+
     call = result[:call]
 
-    args = process call[3]
+    args = call[3]
 
     if call[2] == :find_by_sql or call[2] == :count_by_sql
       failed = check_arguments args[1]
     elsif call[2].to_s =~ /^find/
       failed = (args.length > 2 and check_arguments args[-1])
+    elsif tracker.options[:rails3] and result[:method] != :scope
+      #This is for things like where("query = ?")
+      failed = check_arguments args[1]
     else
       failed = (args.length > 1 and check_arguments args[-1])
     end
@@ -94,7 +161,7 @@ class Brakeman::CheckSQL < Brakeman::BaseCheck
         end
       when :array
         return check_arguments(arg[1])
-      when :string_interp
+      when :string_interp, :dstr
         return true if check_string_interp arg
       when :call
         return check_call(arg)
@@ -112,7 +179,7 @@ class Brakeman::CheckSQL < Brakeman::BaseCheck
     arg.each do |exp|
       #For now, don't warn on interpolation of Model.table_name
       #but check for other 'safe' things in the future
-      if sexp? exp and exp.node_type == :string_eval
+      if sexp? exp and (exp.node_type == :string_eval or exp.node_type == :evstr)
         if call? exp[1] and (model_name?(exp[1][1]) or exp[1][1].nil?) and exp[1][2] == :table_name
           return false
         end
@@ -125,6 +192,7 @@ class Brakeman::CheckSQL < Brakeman::BaseCheck
     target = exp[1]
     method = exp[2]
     args = exp[3]
+
     if sexp? target and 
       (method == :+ or method == :<< or method == :concat) and 
       (string? target or include_user_input? exp)
@@ -132,6 +200,8 @@ class Brakeman::CheckSQL < Brakeman::BaseCheck
       true
     elsif call? target
       check_call target
+    elsif target == nil and tracker.options[:rails3] and method.to_s.match /^first|last|all|where|order|group|having$/
+      check_arguments args
     else
       false
     end

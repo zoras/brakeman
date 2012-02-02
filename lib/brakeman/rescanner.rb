@@ -23,7 +23,7 @@ class Brakeman::Rescanner < Brakeman::Scanner
 
     tracker.run_checks if @changes
 
-    Brakeman::RescanReport.new @old_results, tracker.checks
+    Brakeman::RescanReport.new @old_results, tracker
   end
 
   #Rescans changed files
@@ -45,7 +45,7 @@ class Brakeman::Rescanner < Brakeman::Scanner
 
     SCAN_ORDER.each do |type|
       paths_by_type[type].each do |path|
-        warn "Rescanning #{path} as #{type}" if tracker.options[:debug]
+        Brakeman.debug "Rescanning #{path} as #{type}"
 
         if rescan_file path, type
           @changes = true
@@ -206,9 +206,10 @@ end
 class Brakeman::RescanReport
   attr_reader :old_results, :new_results
 
-  def initialize old_results, new_results
+  def initialize old_results, tracker
+    @tracker = tracker
     @old_results = old_results
-    @new_results = new_results
+    @new_results = tracker.checks
     @all_warnings = nil
     @diff = nil
   end
@@ -243,5 +244,43 @@ class Brakeman::RescanReport
   #Returns a hash of arrays for :new and :fixed warnings
   def diff
     @diff ||= @new_results.diff(@old_results)
+  end
+
+  #Returns an array of warnings which were in the old report and the new report
+  def existing_warnings
+    @old ||= all_warnings.select do |w|
+      not new_warnings.include? w
+    end
+  end
+
+  #Output total, fixed, and new warnings
+  def to_s(verbose = false)
+    if !verbose
+    <<-OUTPUT
+Total warnings: #{all_warnings.length}
+Fixed warnings: #{fixed_warnings.length}
+New warnings: #{new_warnings.length}
+    OUTPUT
+    else
+      existing_warnings = all_warnings - new_warnings
+
+      "".tap do |out|
+        {:fixed => fixed_warnings, :new => new_warnings, :existing => existing_warnings}.each do |warning_type, warnings|
+          if warnings.length > 0
+            out << "#{warning_type.to_s.titleize} warnings: #{warnings.length}\n"
+            table = Ruport::Data::Table(["Confidence", "Class", "Method", "Warning Type", "Message"])
+            warnings.sort_by{|w| w.confidence}.each do |warning|
+              next if warning.confidence > @tracker.options[:min_confidence]
+              w = warning.to_row
+              w["Confidence"] = Brakeman::Report::TEXT_CONFIDENCE[w["Confidence"]] if w["Confidence"].is_a?(Numeric)
+              table << warning.to_row
+            end
+            out << table.to_s
+          end
+
+        end
+      end
+
+    end
   end
 end

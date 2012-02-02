@@ -1,8 +1,30 @@
+# 1.2.2
+
+ * --no-progress works again
+ * Make CheckLinkTo a separate check
+ * Don't fail on unknown options to resource(s)
+ * Handle empty resource(s) blocks
+ * Add RescanReport#existing_warnings
+
+## 1.2.1
+
+ * Remove link_to warning for Rails 3.x or when using rails_xss
+ * Don't warn if first argument to link_to is escaped
+ * Detect usage of attr_accessible with no arguments
+ * Fix error when rendering a partial from a view but not through a controller
+ * Fix some issues with rails_xss, CheckCrossSiteScripting, and CheckTranslateBug
+ * Simplify Brakeman Rake task
+ * Avoid modifying $VERBOSE
+ * Add Brakeman::RescanReport#to_s
+ * Add Brakeman::Warning#to_s
+
 ## 1.2.0
 
  * Speed improvements for CheckExecute and CheckRender
+ * Check named_scope() and scope() for SQL injection
  * Add --rake option to create rake task to run Brakeman
  * Add experimental support for rescanning a subset of files
+ * Add --summary option to only output summary
  * Fix a problem with Rails 3 routes
 
 ## 1.1.0

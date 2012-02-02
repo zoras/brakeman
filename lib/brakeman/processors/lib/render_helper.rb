@@ -21,10 +21,13 @@ module Brakeman::RenderHelper
 
   #Processes layout
   def process_layout name = nil
-    layout = name || layout_name
-    return unless layout
+    if name.nil? and defined? layout_name
+      name = layout_name
+    end
 
-    process_template layout, nil
+    return unless name
+
+    process_template name, nil
   end
 
   #Determines file name for partial and then processes it
@@ -50,7 +53,7 @@ module Brakeman::RenderHelper
     name = name.to_s.gsub(/^\//, "")
     template = @tracker.templates[name.to_sym]
     unless template
-      warn "[Notice] No such template: #{name}" if @tracker.options[:debug]
+      Brakeman.debug "[Notice] No such template: #{name}"
       return 
     end
 

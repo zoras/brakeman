@@ -11,26 +11,58 @@ class Brakeman::CheckModelAttributes < Brakeman::BaseCheck
   def run_check
     return if mass_assign_disabled?
 
-    names = []
+    #Roll warnings into one warning for all models
+    if tracker.options[:collapse_mass_assignment]
+      no_accessible_names = []
+      protected_names = []
 
-    tracker.models.each do |name, model|
-      if model[:attr_accessible].nil? and parent? tracker, model, :"ActiveRecord::Base"
-        if tracker.options[:collapse_mass_assignment]
-          names << name.to_s
-        else
-          warn :model => name, 
+      check_models do |name, model|
+        if model[:options][:attr_protected].nil?
+          no_accessible_names << name.to_s
+        elsif not tracker.options[:ignore_attr_protected]
+          protected_names << name.to_s
+        end
+      end
+
+      unless no_accessible_names.empty?
+        warn :model => no_accessible_names.sort.join(", "),
+          :warning_type => "Attribute Restriction",
+          :message => "Mass assignment is not restricted using attr_accessible",
+          :confidence => CONFIDENCE[:high]
+      end
+
+      unless protected_names.empty?
+        warn :model => protected_names.sort.join(", "),
+          :warning_type => "Attribute Restriction",
+          :message => "attr_accessible is recommended over attr_protected",
+          :confidence => CONFIDENCE[:low]
+      end
+    else #Output one warning per model
+
+      check_models do |name, model|
+        if model[:options][:attr_protected].nil?
+          warn :model => name,
+            :file => model[:file],
             :warning_type => "Attribute Restriction",
-            :message => "Mass assignment is not restricted using attr_accessible", 
+            :message => "Mass assignment is not restricted using attr_accessible",
             :confidence => CONFIDENCE[:high]
+        elsif not tracker.options[:ignore_attr_protected]
+          warn :model => name,
+            :file => model[:file],
+            :line => model[:options][:attr_protected].first.line,
+            :warning_type => "Attribute Restriction",
+            :message => "attr_accessible is recommended over attr_protected",
+            :confidence => CONFIDENCE[:low]
         end
       end
     end
+  end
 
-    if tracker.options[:collapse_mass_assignment] and not names.empty?
-      warn :model => names.sort.join(", "), 
-        :warning_type => "Attribute Restriction", 
-        :message => "Mass assignment is not restricted using attr_accessible", 
-        :confidence => CONFIDENCE[:high]
+  def check_models
+    tracker.models.each do |name, model|
+      if model[:attr_accessible].nil? and parent? model, :"ActiveRecord::Base"
+        yield name, model
+      end
     end
   end
 end

@@ -19,7 +19,7 @@ class Brakeman::ModelProcessor < Brakeman::BaseProcessor
   #s(:class, NAME, PARENT, s(:scope ...))
   def process_class exp
     if @model
-      warn "[Notice] Skipping inner class: #{class_name exp[1]}" if @tracker.options[:debug]
+      Brakeman.debug "[Notice] Skipping inner class: #{class_name exp[1]}"
       ignore
     else
       @model = { :name => class_name(exp[1]),
@@ -56,6 +56,8 @@ class Brakeman::ModelProcessor < Brakeman::BaseProcessor
         case method
         when :private, :protected, :public
           @visibility = method
+        when :attr_accessible
+          @model[:attr_accessible] ||= []
         else
           #??
         end
@@ -73,7 +75,7 @@ class Brakeman::ModelProcessor < Brakeman::BaseProcessor
         else
           if @model
             @model[:options][method] ||= []
-            @model[:options][method] << process(args)
+            @model[:options][method] << args
           end
         end
       end

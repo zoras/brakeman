@@ -11,14 +11,14 @@ class Rails2Tests < Test::Unit::TestCase
       @expected ||= {
         :controller => 1,
         :model => 2,
-        :template => 17,
-        :warning => 18 }
+        :template => 18,
+        :warning => 21 }
     else
       @expected ||= {
         :controller => 1,
         :model => 2,
-        :template => 17,
-        :warning => 19 }
+        :template => 18,
+        :warning => 22 }
     end
   end
 
@@ -174,6 +174,33 @@ class Rails2Tests < Test::Unit::TestCase
       :file => /home_controller\.rb/
   end
 
+  def test_sql_injection_named_scope
+    assert_warning :type => :warning,
+      :warning_type => "SQL Injection",
+      :line => 4,
+      :message => /^Possible SQL injection near line 4: named_scope\(:phooey/,
+      :confidence => 0,
+      :file => /user\.rb/
+  end
+
+  def test_sql_injection_named_scope_lambda
+    assert_warning :type => :warning,
+      :warning_type => "SQL Injection",
+      :line => 2,
+      :message => /^Possible SQL injection near line 2: named_scope\(:dah, lambda/,
+      :confidence => 1,
+      :file => /user\.rb/
+  end
+
+  def test_sql_injection_named_scope_conditional
+    assert_warning :type => :warning,
+      :warning_type => "SQL Injection",
+      :line => 6,
+      :message => /^Possible SQL injection near line 6: named_scope\(:with_state, lambda/,
+      :confidence => 1,
+      :file => /user\.rb/
+  end
+
   def test_csrf_protection
     assert_warning :type => :controller,
       :warning_type => "Cross-Site Request Forgery",
@@ -243,6 +270,25 @@ class Rails2Tests < Test::Unit::TestCase
       :confidence => 0,
       :file => /test_model\.html\.erb/
   end
+
+  def test_model_in_link_to
+    assert_warning :type => :template,
+      :warning_type => "Cross Site Scripting",
+      :line => 7,
+      :message => /^Unescaped model attribute in link_to/,
+      :confidence => 0,
+      :file => /test_model\.html\.erb/
+  end
+
+  def test_escaped_parameter_in_link_to
+    assert_no_warning :type => :template,
+      :warning_type => "Cross Site Scripting",
+      :line => 10,
+      :message => /^Unescaped parameter value in link_to/,
+      :confidence => 1,
+      :file => /test_params\.html\.erb/
+  end
+
 
   def test_filter
     assert_warning :type => :template,

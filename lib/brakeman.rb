@@ -35,6 +35,9 @@ module Brakeman
   #option is set
   Warnings_Found_Exit_Code = 3
 
+  @debug = false
+  @quiet = false
+
   #Run Brakeman scan. Returns Tracker object.
   #
   #Options:
@@ -62,19 +65,24 @@ module Brakeman
   #  * :safe_methods - array of methods to consider safe
   #  * :skip_libs - do not process lib/ directory (default: false)
   #  * :skip_checks - checks not to run (run all if not specified)
+  #  * :summary_only - only output summary section of report 
+  #                    (does not apply to tabs format)
   #
   #Alternatively, just supply a path as a string.
   def self.run options
     options = set_options options
 
-    if options[:quiet]
+    @quiet = !!options[:quiet]
+    @debug = !!options[:debug]
+
+    if @quiet
       options[:report_progress] = false
-      $VERBOSE = nil
     end
 
     scan options
   end
 
+  #Sets up options for run, checks given application path
   def self.set_options options
     if options.is_a? String
       options = { :app_path => options }
@@ -92,12 +100,13 @@ module Brakeman
 
     if File.exist? app_path + "/script/rails"
       options[:rails3] = true
-      warn "[Notice] Detected Rails 3 application" 
+      notify "[Notice] Detected Rails 3 application"
     end
 
     options
   end
 
+  #Load options from YAML file
   def self.load_options config_file
     config_file ||= ""
 
@@ -109,7 +118,7 @@ module Brakeman
       "#{File.expand_path(File.dirname(__FILE__))}/../lib/config.yaml"].each do |f|
 
       if File.exist? f and not File.directory? f
-        warn "[Notice] Using configuration in #{f}" unless options[:quiet]
+        notify "[Notice] Using configuration in #{f}"
         options = YAML.load_file f
         options.each do |k,v|
           if v.is_a? Array
@@ -124,6 +133,7 @@ module Brakeman
     return {}
   end
 
+  #Default set of options
   def self.get_defaults
     { :skip_checks => Set.new, 
       :check_arguments => true, 
@@ -141,6 +151,8 @@ module Brakeman
     }
   end
 
+  #Determine output format based on options[:output_format]
+  #or options[:output_file]
   def self.get_output_format options
     #Set output format
     if options[:output_format]
@@ -172,6 +184,7 @@ module Brakeman
     end
   end
 
+  #Output list of checks (for `-k` option)
   def self.list_checks
     require 'brakeman/scanner'
     $stderr.puts "Available Checks:"
@@ -179,6 +192,9 @@ module Brakeman
     $stderr.puts Checks.checks.map { |c| c.to_s.match(/^Brakeman::(.*)$/)[1] }.sort.join "\n"
   end
 
+  #Installs Rake task for running Brakeman,
+  #which basically means copying `lib/brakeman/brakeman.rake` to
+  #`lib/tasks/brakeman.rake` in the current Rails application.
   def self.install_rake_task
     if not File.exists? "Rakefile"
       abort "No Rakefile detected"
@@ -189,7 +205,7 @@ module Brakeman
     require 'fileutils'
 
     if not File.exists? "lib/tasks"
-      warn "Creating lib/tasks"
+      notify "Creating lib/tasks"
       FileUtils.mkdir_p "lib/tasks"
     end
 
@@ -198,13 +214,14 @@ module Brakeman
     FileUtils.cp "#{path}/brakeman/brakeman.rake", "lib/tasks/brakeman.rake"
 
     if File.exists? "lib/tasks/brakeman.rake"
-      warn "Task created in lib/tasks/brakeman.rake"
-      warn "Usage: rake brakeman:run[output_file]"
+      notify "Task created in lib/tasks/brakeman.rake"
+      notify "Usage: rake brakeman:run[output_file]"
     else
-      warn "Could not create task"
+      notify "Could not create task"
     end
   end
 
+  #Output configuration to YAML
   def self.dump_config options
     if options[:create_config].is_a? String
       file = options[:create_config]
@@ -231,9 +248,10 @@ module Brakeman
     exit
   end
 
+  #Run a scan. Generally called from Brakeman.run instead of directly.
   def self.scan options
     #Load scanner
-    warn "Loading scanner..."
+    notify "Loading scanner..."
 
     begin
       require 'brakeman/scanner'
@@ -244,27 +262,27 @@ module Brakeman
     #Start scanning
     scanner = Scanner.new options
 
-    warn "[Notice] Using Ruby #{RUBY_VERSION}. Please make sure this matches the one used to run your Rails application."
+    notify "[Notice] Using Ruby #{RUBY_VERSION}. Please make sure this matches the one used to run your Rails application."
 
-    warn "Processing application in #{options[:app_path]}"
+    notify "Processing application in #{options[:app_path]}"
     tracker = scanner.process
 
     if options[:parallel_checks]
-      warn "Running checks in parallel..."
+      notify "Running checks in parallel..."
     else
-      warn "Runnning checks..."
+      notify "Runnning checks..."
     end
     tracker.run_checks
 
     if options[:output_file]
-      warn "Generating report..."
+      notify "Generating report..."
 
       File.open options[:output_file], "w" do |f|
         f.puts tracker.report.send(options[:output_format])
       end
-      warn "Report saved in '#{options[:output_file]}'"
+      notify "Report saved in '#{options[:output_file]}'"
     elsif options[:print_report]
-      warn "Generating report..."
+      notify "Generating report..."
 
       puts tracker.report.send(options[:output_format])
     end
@@ -281,9 +299,33 @@ module Brakeman
     tracker
   end
 
-  def self.rescan tracker, files
+  #Rescan a subset of files in a Rails application.
+  #
+  #A full scan must have been run already to use this method.
+  #The returned Tracker object from Brakeman.run is used as a starting point
+  #for the rescan.
+  #
+  #Options may be given as a hash with the same values as Brakeman.run.
+  #Note that these options will be merged into the Tracker.
+  #
+  #This method returns a RescanReport object with information about the scan.
+  #However, the Tracker object will also be modified as the scan is run.
+  def self.rescan tracker, files, options = {}
     require 'brakeman/rescanner'
 
+    tracker.options.merge! options
+
+    @quiet = !!tracker.options[:quiet]
+    @debug = !!tracker.options[:debug]
+
     Rescanner.new(tracker.options, tracker.processor, files).recheck
+  end
+
+  def self.notify message
+    $stderr.puts message unless @quiet
+  end
+
+  def self.debug message
+    $stderr.puts message if @debug
   end
 end
