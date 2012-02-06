@@ -17,7 +17,7 @@ class Brakeman::AliasProcessor < SexpProcessor
   #The recommended usage is:
   #
   # AliasProcessor.new.process_safely src
-  def initialize
+  def initialize tracker = nil
     super()
     self.strict = false
     self.auto_shift_type = false
@@ -27,7 +27,7 @@ class Brakeman::AliasProcessor < SexpProcessor
     @env = SexpProcessor::Environment.new
     @inside_if = false
     @ignore_ifs = false
-    @tracker = nil #set in subclass as necessary
+    @tracker = tracker #set in subclass as necessary
     set_env_defaults
   end
 
@@ -116,12 +116,24 @@ class Brakeman::AliasProcessor < SexpProcessor
         joined = join_arrays target, args[1] 
         joined.line(exp.line)
         exp = joined
-      elsif string? target and string? args[1]
-        joined = join_strings target, args[1]
-        joined.line(exp.line)
-        exp = joined
-      elsif number? target and number? args[1]
-        exp = Sexp.new(:lit, target[1] + args[1][1])
+      elsif string? args[1]
+        if string? target # "blah" + "blah"
+          joined = join_strings target, args[1]
+          joined.line(exp.line)
+          exp = joined
+        elsif call? target and target[2] == :+ and string? target[3][1]
+          joined = join_strings target[3][1], args[1]
+          joined.line(exp.line)
+          target[3][1] = joined
+          exp = target
+        end
+      elsif number? args[1]
+        if number? target
+          exp = Sexp.new(:lit, target[1] + args[1][1])
+        elsif target[2] == :+ and number? target[3][1]
+          target[3][1] = Sexp.new(:lit, target[3][1][1] + args[1][1])
+          exp = target
+        end
       end
     when :-
       if number? target and number? args[1]
@@ -211,10 +223,13 @@ class Brakeman::AliasProcessor < SexpProcessor
   # x = 1
   def process_lasgn exp
     exp[2] = process exp[2] if sexp? exp[2]
+    return exp if exp[2].nil?
+
     local = Sexp.new(:lvar, exp[1]).line(exp.line || -2)
 
     if @inside_if and val = env[local]
-      if val != exp[2] #avoid setting to value it already is (e.g. "1 or 1")
+      #avoid setting to value it already is (e.g. "1 or 1")
+      if val != exp[2] and val[1] != exp[2] and val[2] != exp[2]
         env[local] = Sexp.new(:or, val, exp[2]).line(exp.line || -2)
       end
     else
@@ -283,6 +298,7 @@ class Brakeman::AliasProcessor < SexpProcessor
     tar_variable = exp[1]
     target = exp[1] = process(exp[1])
     method = exp[2]
+
     if method == :[]=
       index = exp[3][1] = process(exp[3][1])
       value = exp[3][2] = process(exp[3][2])
@@ -369,6 +385,10 @@ class Brakeman::AliasProcessor < SexpProcessor
     exp
   end
 
+  def process_svalue exp
+    exp[1]
+  end
+
   #Constant assignments like
   # BIG_CONSTANT = 234810983
   def process_cdecl exp
@@ -400,12 +420,18 @@ class Brakeman::AliasProcessor < SexpProcessor
     else
       exps = exp[2..-1]
     end
-    
+
     was_inside = @inside_if
     @inside_if = !@ignore_ifs
 
     exps.each do |e|
-      process e if sexp? e
+      if sexp? e
+        if e.node_type == :block
+          process_default e #avoid creating new scope
+        else
+          process e
+        end
+      end
     end
 
     @inside_if = was_inside

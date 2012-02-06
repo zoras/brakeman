@@ -7,12 +7,14 @@ require 'set'
 class Brakeman::CheckMassAssignment < Brakeman::BaseCheck
   Brakeman::Checks.add self
 
+  @description = "Finds instances of mass assignment"
+
   def run_check
     return if mass_assign_disabled?
 
     models = []
     tracker.models.each do |name, m|
-      if parent?(tracker, m, :"ActiveRecord::Base") and m[:attr_accessible].nil?
+      if parent?(m, :"ActiveRecord::Base") and m[:attr_accessible].nil?
         models << name
       end
     end
@@ -45,7 +47,13 @@ class Brakeman::CheckMassAssignment < Brakeman::BaseCheck
     if check and not @results.include? call
       @results << call
 
-      if include_user_input? call[3] and not hash? call[3][1]
+      model = tracker.models[res[:chain].first]
+
+      attr_protected = (model and model[:options][:attr_protected])
+
+      if attr_protected and tracker.options[:ignore_attr_protected]
+        return
+      elsif include_user_input? call[3] and not hash? call[3][1] and not attr_protected
         confidence = CONFIDENCE[:high]
       else
         confidence = CONFIDENCE[:low]
