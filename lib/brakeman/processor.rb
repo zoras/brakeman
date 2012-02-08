@@ -61,7 +61,7 @@ module Brakeman
       end
 
       Brakeman.benchmark :model_alias_processing do
-        AliasProcessor.new.process result
+        AliasProcessor.new(@tracker).process result
       end
     end
 
@@ -107,7 +107,7 @@ module Brakeman
       end
 
       Brakeman.benchmark :initializer_alias_processing do
-        res = AliasProcessor.new.process res
+        res = AliasProcessor.new(@tracker).process res
       end
 
       @tracker.initializers[Pathname.new(name).basename.to_s] = res
