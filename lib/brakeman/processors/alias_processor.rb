@@ -27,6 +27,7 @@ class Brakeman::AliasProcessor < SexpProcessor
     @env = SexpProcessor::Environment.new
     @inside_if = false
     @ignore_ifs = false
+    @exp_context = []
     @tracker = tracker #set in subclass as necessary
     set_env_defaults
   end
@@ -71,9 +72,12 @@ class Brakeman::AliasProcessor < SexpProcessor
   #Process a Sexp. If the Sexp has a value associated with it in the
   #environment, that value will be returned. 
   def process_default exp
+    @exp_context.push exp
+
     begin
-      type = exp.shift
       exp.each_with_index do |e, i|
+        next if i == 0
+
         if sexp? e and not e.empty?
           exp[i] = process e
         else
@@ -82,18 +86,18 @@ class Brakeman::AliasProcessor < SexpProcessor
       end
     rescue Exception => err
       @tracker.error err if @tracker
-    ensure
-      #The type must be put back on, or else later processing
-      #will trip up on it
-      exp.unshift type
     end
 
     #Generic replace
-    if replacement = env[exp]
-      set_line replacement.deep_clone, exp.line
+    if replacement = env[exp] and not duplicate? replacement
+      result = set_line replacement.deep_clone, exp.line
     else
-      exp
+      result = exp
     end
+
+    @exp_context.pop
+
+    result
   end
 
   #Process a method call.
@@ -102,7 +106,9 @@ class Brakeman::AliasProcessor < SexpProcessor
     exp = process_default exp
 
     #In case it is replaced with something else
-    return exp unless call? exp
+    unless call? exp
+      return exp
+    end
 
     target = exp[1]
     method = exp[2]
@@ -477,7 +483,11 @@ class Brakeman::AliasProcessor < SexpProcessor
   def join_strings string1, string2
     result = Sexp.new(:str)
     result[1] = string1[1] + string2[1]
-    result
+    if result[1].length > 50
+      string1
+    else
+      result
+    end
   end
 
   #Returns a new SexpProcessor::Environment containing only instance variables.
@@ -512,5 +522,13 @@ class Brakeman::AliasProcessor < SexpProcessor
     else
       exp
     end
+  end
+
+  def duplicate? exp
+    @exp_context[0..-2].reverse_each do |e|
+      return true if exp == e 
+    end
+
+    false
   end
 end
