@@ -175,6 +175,13 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     exp
   end
 
+  #New scope for calls with blocks
+  def process_call_with_block exp
+    env.scope do
+      process_default exp
+    end
+  end
+
   #Start new scope for block.
   def process_block exp
     env.scope do
