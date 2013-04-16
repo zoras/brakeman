@@ -383,7 +383,7 @@ module Brakeman::Util
 
   def truncate_table str
     @terminal_width ||= if $stdin && $stdin.tty?
-                          ::HighLine::SystemExtensions::terminal_size[0]
+                          ::HighLine.new.terminal_size[0]
                         else
                           80
                         end
