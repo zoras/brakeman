@@ -287,7 +287,7 @@ class Rails3Tests < Test::Unit::TestCase
 
   def test_csrf_protection
     assert_warning :type => :controller,
-      :warning_type => "Cross-Site Request Forgery",
+      :warning_type => "Cross Site Request Forgery",
       :message => /^'protect_from_forgery' should be called /,
       :confidence => 0,
       :file => /application_controller\.rb/

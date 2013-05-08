@@ -213,7 +213,7 @@ class RailsWithXssPluginTests < Test::Unit::TestCase
 
   def test_cross_site_request_forgery_18 
     assert_warning :type => :controller,
-      :warning_type => "Cross-Site Request Forgery",
+      :warning_type => "Cross Site Request Forgery",
       #noline,
       :message => /^'protect_from_forgery'\ should\ be\ called\ /,
       :confidence => 0,

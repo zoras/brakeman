@@ -492,7 +492,7 @@ class Rails31Tests < Test::Unit::TestCase
 
   def test_cross_site_request_forgery
     assert_warning :type => :warning,
-      :warning_type => "Cross-Site Request Forgery",
+      :warning_type => "Cross Site Request Forgery",
       :line => 91,
       :message => /^Use\ whitelist\ \(:only\ =>\ \[\.\.\]\)\ when\ skipp/,
       :confidence => 1,
