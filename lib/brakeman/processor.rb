@@ -63,25 +63,21 @@ module Brakeman
 
     #Process a model source
     def process_model src, file_name
-<<<<<<< HEAD
       result = nil
 
       Brakeman.benchmark :model_processing do
         result = ModelProcessor.new(@tracker).process_model src, file_name
       end
 
-      Brakeman.benchmark :model_alias_processing do
-        AliasProcessor.new(@tracker).process result
+      if result
+        Brakeman.benchmark :model_alias_processing do
+          AliasProcessor.new(@tracker).process_all result
+        end
       end
-=======
-      result = ModelProcessor.new(@tracker).process_model src, file_name
-      AliasProcessor.new(@tracker).process_all result if result
->>>>>>> master
     end
 
     #Process either an ERB or HAML template
     def process_template name, src, type, called_from = nil, file_name = nil
-<<<<<<< HEAD
       result = nil
 
       Brakeman.benchmark :template_processing do
@@ -92,22 +88,11 @@ module Brakeman
           result = HamlTemplateProcessor.new(@tracker, name, called_from, file_name).process src
         when :erubis
           result = ErubisTemplateProcessor.new(@tracker, name, called_from, file_name).process src
+        when :slim
+          result = SlimTemplateProcessor.new(@tracker, name, called_from, file_name).process src
         else
           abort "Unknown template type: #{type} (#{name})"
         end
-=======
-      case type
-      when :erb
-        result = ErbTemplateProcessor.new(@tracker, name, called_from, file_name).process src
-      when :haml
-        result = HamlTemplateProcessor.new(@tracker, name, called_from, file_name).process src
-      when :erubis
-        result = ErubisTemplateProcessor.new(@tracker, name, called_from, file_name).process src
-      when :slim
-        result = SlimTemplateProcessor.new(@tracker, name, called_from, file_name).process src
-      else
-        abort "Unknown template type: #{type} (#{name})"
->>>>>>> master
       end
 
       #Each template which is rendered is stored separately
