@@ -10,13 +10,20 @@ By default, this will output timings for each application.
 
 # Brakeman
 
+![Brakeman Logo](http://brakemanscanner.org/images/logo_medium.png)
+
+[![Travis CI
+Status](https://secure.travis-ci.org/presidentbeef/brakeman.png)](https://travis-ci.org/presidentbeef/brakeman)
+[![Code
+Climate](https://codeclimate.com/github/presidentbeef/brakeman.png)](https://codeclimate.com/github/presidentbeef/brakeman)
+
 Brakeman is a static analysis tool which checks Ruby on Rails applications for security vulnerabilities.
 
-It targets Rails versions 2.x and 3.x.
- 
+It works with Rails 2.x, 3.x, and 4.x.
+
 There is also a [plugin available](http://brakemanscanner.org/docs/jenkins/) for Jenkins/Hudson.
 
-For even more continuous testing, try the [Guard plugin](https://github.com/oreoshake/guard-brakeman).
+For even more continuous testing, try the [Guard plugin](https://github.com/guard/guard-brakeman).
 
 # Homepage/News
 
@@ -31,6 +38,12 @@ Mailing list: brakeman@librelist.com
 Using RubyGems:
 
     gem install brakeman
+
+Using Bundler, add to development group in Gemfile:
+
+    group :development do
+      gem 'brakeman', :require => false
+    end
 
 From source:
 
@@ -49,7 +62,11 @@ To specify an output file for the results:
 
     brakeman -o output_file
 
-The output format is determined by the file extension or by using the `-f` option. Current options are: `text`, `html`, `csv`, and `tabs`.
+The output format is determined by the file extension or by using the `-f` option. Current options are: `text`, `html`, `tabs`, `json` and `csv`.
+
+Multiple output files can be specified:
+
+    brakeman -o output.html -o output.json
 
 To suppress informational warnings and just output the report:
 
@@ -103,9 +120,28 @@ By default, Brakeman will return 0 as an exit code unless something went very wr
 
     brakeman -z
 
+To skip certain files that Brakeman may have trouble parsing, use:
+
+    brakeman --skip-files file1,file2,etc
+
+Brakeman will raise warnings on models that use `attr_protected`. To suppress these warnings:
+
+    brakeman --ignore-protected
+
+To compare results of a scan with a previous scan, use the JSON output option and then:
+
+    brakeman --compare old_report.json
+
+This will output JSON with two lists: one of fixed warnings and one of new warnings.
+
+Brakeman will ignore warnings if configured to do so. By default, it looks for a configuration file in `config/brakeman.ignore`.
+To create and manage this file, use:
+
+    brakeman -I
+
 # Warning information
 
-See WARNING_TYPES for more information on the warnings reported by this tool.
+See WARNING\_TYPES for more information on the warnings reported by this tool.
 
 # Warning context
 
@@ -133,30 +169,8 @@ Brakeman options can stored and read from YAML files. To simplify the process of
 
 Options passed in on the commandline have priority over configuration files.
 
-The default config locations are `./config.yaml`, `~/.brakeman/`, and `/etc/brakeman/config.yaml`
+The default config locations are `./config/brakeman.yml`, `~/.brakeman/config.yml`, and `/etc/brakeman/config.yml`
 
 The `-c` option can be used to specify a configuration file to use.
 
-# License
-
-The MIT License
-
-Copyright (c) 2010, YELLOWPAGES.COM, LLC
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+# License see MIT-LICENSE

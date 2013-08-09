@@ -13,7 +13,9 @@ class Brakeman::CheckRender < Brakeman::BaseCheck
   end
 
   def process_render result
-    case result[:call][1]
+    return unless node_type? result[:call], :render
+
+    case result[:call].render_type
     when :partial, :template, :action, :file
       check_for_dynamic_path result
     when :inline
@@ -29,30 +31,32 @@ class Brakeman::CheckRender < Brakeman::BaseCheck
   def check_for_dynamic_path result
     view = result[:call][2]
 
-    if sexp? view and view.node_type != :str and view.node_type != :lit and not duplicate? result
-
+    if sexp? view and not duplicate? result
       add_result result
 
-      if include_user_input? view
+
+      if input = has_immediate_user_input?(view)
         confidence = CONFIDENCE[:high]
+      elsif input = include_user_input?(view)
+        if node_type? view, :string_interp, :dstr
+          confidence = CONFIDENCE[:med]
+        else
+          confidence = CONFIDENCE[:low]
+        end
       else
-        confidence = CONFIDENCE[:low]
+        return
       end
 
-      warning = { :warning_type => "Dynamic Render Path",
-        :message => "Render path is dynamic",
-        :line => result[:call].line,
-        :code => result[:call],
-        :confidence => confidence }
+      return if input.type == :model #skip models
 
-      if result[:location][0] == :template
-        warning[:template] = result[:location][1]
-      else
-        warning[:class] = result[:location][1]
-        warning[:method] = result[:location][2]
-      end
+      message = "Render path contains #{friendly_type_of input}"
 
-      warn warning
+      warn :result => result,
+        :warning_type => "Dynamic Render Path",
+        :warning_code => :dynamic_render_path,
+        :message => message,
+        :user_input => input.match,
+        :confidence => confidence
     end
   end
 end 

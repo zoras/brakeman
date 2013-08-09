@@ -21,9 +21,11 @@ class Brakeman::CheckMailTo < Brakeman::BaseCheck
 
       warn :result => result,
         :warning_type => "Mail Link",
+        :warning_code => :CVE_2011_0446,
         :message => message,
         :confidence => CONFIDENCE[:high],
-        :file => gemfile_or_environment
+        :file => gemfile_or_environment,
+        :link_path => "https://groups.google.com/d/topic/rubyonrails-security/8CpI7egxX4E/discussion"
     end
   end
 
@@ -33,15 +35,10 @@ class Brakeman::CheckMailTo < Brakeman::BaseCheck
     Brakeman.debug "Checking calls to mail_to for javascript encoding"
 
     tracker.find_call(:target => false, :method => :mail_to).each do |result|
-      call = result[:call]
-      args = call[-1]
-
-      args.each do |arg|
+      result[:call].each_arg do |arg|
         if hash? arg
-          hash_iterate arg do |k, v|
-            if symbol? v and v[-1] == :javascript
-              return result
-            end
+          if option = hash_access(arg, :encode)
+            return result if symbol? option and option.value == :javascript
           end
         end
       end

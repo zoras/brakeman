@@ -10,8 +10,11 @@ module Brakeman
   #The ControllerProcessor, TemplateProcessor, and ModelProcessor will
   #update the Tracker with information about what is parsed.
   class Processor
-    def initialize options
-      @tracker = Tracker.new self, options
+    include Util
+
+    def initialize(app_tree, options)
+      @app_tree = app_tree
+      @tracker = Tracker.new(@app_tree, self, options)
     end
 
     def tracked_events
@@ -41,19 +44,26 @@ module Brakeman
 
     #Process controller source. +file_name+ is used for reporting
     def process_controller src, file_name
-      Brakeman.benchmark :controller_processing do
-        ControllerProcessor.new(@tracker).process_controller src, file_name
+      if contains_class? src
+        Brakeman.benchmark :controller_processing do
+          ControllerProcessor.new(@app_tree, @tracker).process_controller src, file_name
+        end
+      else
+        Brakeman.benchmark :library_processing do
+          LibraryProcessor.new(@tracker).process_library src, file_name
+        end
       end
     end
 
     #Process variable aliasing in controller source and save it in the
     #tracker.
-    def process_controller_alias src, only_method = nil
-      ControllerAliasProcessor.new(@tracker, only_method).process src
+    def process_controller_alias name, src, only_method = nil
+      ControllerAliasProcessor.new(@app_tree, @tracker, only_method).process_controller name, src
     end
 
     #Process a model source
     def process_model src, file_name
+<<<<<<< HEAD
       result = nil
 
       Brakeman.benchmark :model_processing do
@@ -63,10 +73,15 @@ module Brakeman
       Brakeman.benchmark :model_alias_processing do
         AliasProcessor.new(@tracker).process result
       end
+=======
+      result = ModelProcessor.new(@tracker).process_model src, file_name
+      AliasProcessor.new(@tracker).process_all result if result
+>>>>>>> master
     end
 
     #Process either an ERB or HAML template
     def process_template name, src, type, called_from = nil, file_name = nil
+<<<<<<< HEAD
       result = nil
 
       Brakeman.benchmark :template_processing do
@@ -80,12 +95,25 @@ module Brakeman
         else
           abort "Unknown template type: #{type} (#{name})"
         end
+=======
+      case type
+      when :erb
+        result = ErbTemplateProcessor.new(@tracker, name, called_from, file_name).process src
+      when :haml
+        result = HamlTemplateProcessor.new(@tracker, name, called_from, file_name).process src
+      when :erubis
+        result = ErubisTemplateProcessor.new(@tracker, name, called_from, file_name).process src
+      when :slim
+        result = SlimTemplateProcessor.new(@tracker, name, called_from, file_name).process src
+      else
+        abort "Unknown template type: #{type} (#{name})"
+>>>>>>> master
       end
 
       #Each template which is rendered is stored separately
       #with a new name.
       if called_from
-        name = (name.to_s + "." + called_from.to_s).to_sym
+        name = ("#{name}.#{called_from}").to_sym
       end
 
       @tracker.templates[name][:src] = result

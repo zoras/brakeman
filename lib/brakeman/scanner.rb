@@ -1,54 +1,43 @@
 require 'rubygems'
-begin
-  #Load our own version of ruby_parser :'(
-  require 'ruby_parser/ruby_parser.rb'
 
-  require 'haml'
-  require 'sass'
-  require 'erb'
-  require 'erubis'
+begin
+  require 'ruby_parser'
+  require 'ruby_parser/bm_sexp.rb'
+  require 'ruby_parser/bm_sexp_processor.rb'
   require 'brakeman/processor'
+  require 'brakeman/app_tree'
 rescue LoadError => e
   $stderr.puts e.message
   $stderr.puts "Please install the appropriate dependency."
-  exit
-end
-
-#Erubis processor which ignores any output which is plain text.
-class Brakeman::ScannerErubis < Erubis::Eruby
-  include Erubis::NoTextEnhancer
-end
-
-class Brakeman::ErubisEscape < Brakeman::ScannerErubis
-  include Erubis::EscapeEnhancer
+  exit -1
 end
 
 #Scans the Rails application.
 class Brakeman::Scanner
   attr_reader :options
 
-  RUBY_1_9 = !!(RUBY_VERSION =~ /^1\.9/)
+  RUBY_1_9 = !!(RUBY_VERSION >= "1.9.0")
+  KNOWN_TEMPLATE_EXTENSIONS = /.*\.(erb|haml|rhtml|slim)$/
 
   #Pass in path to the root of the Rails application
   def initialize options, processor = nil
     @options = options
-    @report_progress = options[:report_progress]
-    @path = options[:app_path]
-    @app_path = File.join(@path, "app")
-    @processor = processor || Brakeman::Processor.new(options)
-    @skip_files = nil
+    @app_tree = Brakeman::AppTree.from_options(options)
 
-    #Convert files into Regexp for matching
-    if options[:skip_files]
-      list = "(?:" << options[:skip_files].map { |f| Regexp.escape f }.join("|") << ")$"
-      @skip_files = Regexp.new(list)
+    if !@app_tree.root || !@app_tree.exists?("app")
+      raise Brakeman::NoApplication, "Please supply the path to a Rails application."
     end
 
-    if RUBY_1_9
-      @ruby_parser = ::Ruby19Parser
-    else
-      @ruby_parser = ::Ruby18Parser
+    if @app_tree.exists?("script/rails")
+      options[:rails3] = true
+      Brakeman.notify "[Notice] Detected Rails 3 application"
+    elsif not @app_tree.exists?("script")
+      options[:rails3] = true # Probably need to do some refactoring
+      Brakeman.notify "[Notice] Detected Rails 4 application"
     end
+
+    @ruby_parser = ::RubyParser
+    @processor = processor || Brakeman::Processor.new(@app_tree, options)
   end
 
   #Returns the Tracker generated from the scan
@@ -66,15 +55,15 @@ class Brakeman::Scanner
     process_initializers
     Brakeman.notify "Processing libs..."
     process_libs
-    Brakeman.notify "Processing routes...        "
+    Brakeman.notify "Processing routes...          "
     process_routes
-    Brakeman.notify "Processing templates...     "
+    Brakeman.notify "Processing templates...       "
     process_templates
-    Brakeman.notify "Processing models...        "
+    Brakeman.notify "Processing models...          "
     process_models
-    Brakeman.notify "Processing controllers...   "
+    Brakeman.notify "Processing controllers...     "
     process_controllers
-    Brakeman.notify "Indexing call sites...      "
+    Brakeman.notify "Indexing call sites...        "
     index_call_sites
     tracker
   end
@@ -91,9 +80,8 @@ class Brakeman::Scanner
       process_config_file "gems.rb"
     end
 
-    if File.exists? "#@path/vendor/plugins/rails_xss" or
-      options[:rails3] or options[:escape_html] or
-      (File.exists? "#@path/Gemfile" and File.read("#@path/Gemfile").include? "rails_xss")
+    if @app_tree.exists?("vendor/plugins/rails_xss") or
+      options[:rails3] or options[:escape_html]
 
       tracker.config[:escape_html] = true
       Brakeman.notify "[Notice] Escaping HTML by default"
@@ -101,24 +89,26 @@ class Brakeman::Scanner
   end
 
   def process_config_file file
-    if File.exists? "#@path/config/#{file}"
-      @processor.process_config(parse_ruby(File.read("#@path/config/#{file}")))
+    path = "config/#{file}"
+
+    if @app_tree.exists?(path)
+      @processor.process_config(parse_ruby(@app_tree.read(path)))
     end
 
   rescue Exception => e
-    Brakeman.notify "[Notice] Error while processing config/#{file}"
-    tracker.error e.exception(e.message + "\nwhile processing Gemfile"), e.backtrace
+    Brakeman.notify "[Notice] Error while processing #{path}"
+    tracker.error e.exception(e.message + "\nwhile processing #{path}"), e.backtrace
   end
 
   private :process_config_file
 
   #Process Gemfile
   def process_gems
-    if File.exists? "#@path/Gemfile"
-      if File.exists? "#@path/Gemfile.lock"
-        @processor.process_gems(parse_ruby(File.read("#@path/Gemfile")), File.read("#@path/Gemfile.lock"))
+    if @app_tree.exists? "Gemfile"
+      if @app_tree.exists? "Gemfile.lock"
+        @processor.process_gems(parse_ruby(@app_tree.read("Gemfile")), @app_tree.read("Gemfile.lock"))
       else
-        @processor.process_gems(parse_ruby(File.read("#@path/Gemfile")))
+        @processor.process_gems(parse_ruby(@app_tree.read("Gemfile")))
       end
     end
   rescue Exception => e
@@ -130,10 +120,7 @@ class Brakeman::Scanner
   #
   #Adds parsed information to tracker.initializers
   def process_initializers
-    initializer_files = Dir.glob(@path + "/config/initializers/**/*.rb").sort
-    initializer_files.reject! { |f| @skip_files.match f } if @skip_files
-
-    initializer_files.each do |f|
+    @app_tree.initializer_paths.each do |f|
       process_initializer f
     end
   end
@@ -141,7 +128,7 @@ class Brakeman::Scanner
   #Process an initializer
   def process_initializer path
     begin
-      @processor.process_initializer(path, parse_ruby(File.read(path)))
+      @processor.process_initializer(path, parse_ruby(@app_tree.read_path(path)))
     rescue Racc::ParseError => e
       tracker.error e, "could not parse #{path}. There is probably a typo in the file. Test it with 'ruby_parse #{path}'"
     rescue Exception => e
@@ -158,19 +145,13 @@ class Brakeman::Scanner
       return
     end
 
-    lib_files = Dir.glob(@path + "/lib/**/*.rb").sort
-    lib_files.reject! { |f| @skip_files.match f } if @skip_files
-
-    total = lib_files.length
+    total = @app_tree.lib_paths.length
     current = 0
 
-    lib_files.each do |f|
+    @app_tree.lib_paths.each do |f|
       Brakeman.debug "Processing #{f}"
-      if @report_progress
-        $stderr.print " #{current}/#{total} files processed\r"
-        current += 1
-      end
-
+      report_progress(current, total)
+      current += 1
       process_lib f
     end
   end
@@ -178,7 +159,7 @@ class Brakeman::Scanner
   #Process a library
   def process_lib path
     begin
-      @processor.process_lib parse_ruby(File.read(path)), path
+      @processor.process_lib parse_ruby(@app_tree.read_path(path)), path
     rescue Racc::ParseError => e
       tracker.error e, "could not parse #{path}. There is probably a typo in the file. Test it with 'ruby_parse #{path}'"
     rescue Exception => e
@@ -190,9 +171,9 @@ class Brakeman::Scanner
   #
   #Adds parsed information to tracker.routes
   def process_routes
-    if File.exists? "#@path/config/routes.rb"
+    if @app_tree.exists?("config/routes.rb")
       begin
-        @processor.process_routes parse_ruby(File.read("#@path/config/routes.rb"))
+        @processor.process_routes parse_ruby(@app_tree.read("config/routes.rb"))
       rescue Exception => e
         tracker.error e.exception(e.message + "\nWhile processing routes.rb"), e.backtrace
         Brakeman.notify "[Notice] Error while processing routes - assuming all public controller methods are actions."
@@ -207,19 +188,13 @@ class Brakeman::Scanner
   #
   #Adds processed controllers to tracker.controllers
   def process_controllers
-    controller_files = Dir.glob(@app_path + "/controllers/**/*.rb").sort
-    controller_files.reject! { |f| @skip_files.match f } if @skip_files
-
-    total = controller_files.length * 2
+    total = @app_tree.controller_paths.length
     current = 0
 
-    controller_files.each do |f|
+    @app_tree.controller_paths.each do |f|
       Brakeman.debug "Processing #{f}"
-      if @report_progress
-        $stderr.print " #{current}/#{total} files processed\r"
-        current += 1
-      end
-
+      report_progress(current, total)
+      current += 1
       process_controller f
     end
 
@@ -228,13 +203,11 @@ class Brakeman::Scanner
 
     Brakeman.notify "Processing data flow in controllers..."
 
-    tracker.controllers.each do |name, controller|
-      if @report_progress
-        $stderr.print " #{current}/#{total} controllers processed\r"
-        current += 1
-      end
-
-      @processor.process_controller_alias controller[:src]
+    tracker.controllers.sort_by{|name| name.to_s}.each do |name, controller|
+      Brakeman.debug "Processing #{name}"
+      report_progress(current, total, "controllers")
+      current += 1
+      @processor.process_controller_alias name, controller[:src]
     end
 
     #No longer need these processed filter methods
@@ -243,7 +216,7 @@ class Brakeman::Scanner
 
   def process_controller path
     begin
-      @processor.process_controller(parse_ruby(File.read(path)), path)
+      @processor.process_controller(parse_ruby(@app_tree.read_path(path)), path)
     rescue Racc::ParseError => e
       tracker.error e, "could not parse #{path}. There is probably a typo in the file. Test it with 'ruby_parse #{path}'"
     rescue Exception => e
@@ -255,22 +228,15 @@ class Brakeman::Scanner
   #
   #Adds processed views to tracker.views
   def process_templates
-
-    views_path = @app_path + "/views/**/*.{html.erb,html.haml,rhtml,js.erb}"
     $stdout.sync = true
+
     count = 0
+    total = @app_tree.template_paths.length
 
-    template_files = Dir.glob(views_path).sort
-    template_files.reject! { |f| @skip_files.match f } if @skip_files
-
-    total = template_files.length
-
-    template_files.each do |path|
-      if @report_progress
-        $stderr.print " #{count}/#{total} files processed\r"
-        count += 1
-      end
-
+    @app_tree.template_paths.each do |path|
+      Brakeman.debug "Processing #{path}"
+      report_progress(count, total)
+      count += 1
       process_template path
     end
 
@@ -279,43 +245,55 @@ class Brakeman::Scanner
 
     Brakeman.notify "Processing data flow in templates..."
 
-    tracker.templates.keys.dup.each do |name|
-      if @report_progress
-        count += 1
-        $stderr.print " #{count}/#{total} templates processed\r"
-      end
-
+    tracker.templates.keys.dup.sort_by{|name| name.to_s}.each do |name|
+      Brakeman.debug "Processing #{name}"
+      report_progress(count, total, "templates")
+      count += 1
       @processor.process_template_alias tracker.templates[name]
     end
   end
 
   def process_template path
-    type = path.match(/.*\.(erb|haml|rhtml)$/)[1].to_sym
+    type = path.match(KNOWN_TEMPLATE_EXTENSIONS)[1].to_sym
     type = :erb if type == :rhtml
     name = template_path_to_name path
-    text = File.read path
+    text = @app_tree.read_path path
 
     begin
       if type == :erb
         if tracker.config[:escape_html]
           type = :erubis
           if options[:rails3]
-            src = Brakeman::RailsXSSErubis.new(text).src
+            require 'brakeman/parsers/rails3_erubis'
+            src = Brakeman::Rails3Erubis.new(text).src
           else
-            src = Brakeman::ErubisEscape.new(text).src
+            require 'brakeman/parsers/rails2_xss_plugin_erubis'
+            src = Brakeman::Rails2XSSPluginErubis.new(text).src
           end
         elsif tracker.config[:erubis]
+          require 'brakeman/parsers/rails2_erubis'
           type = :erubis
           src = Brakeman::ScannerErubis.new(text).src
         else
+          require 'erb'
           src = ERB.new(text, nil, "-").src
           src.sub!(/^#.*\n/, '') if RUBY_1_9
         end
 
         parsed = parse_ruby src
       elsif type == :haml
+        Brakeman.load_brakeman_dependency 'haml'
+        Brakeman.load_brakeman_dependency 'sass'
+
         src = Haml::Engine.new(text,
                                :escape_html => !!tracker.config[:escape_html]).precompiled
+        parsed = parse_ruby src
+      elsif type == :slim
+        Brakeman.load_brakeman_dependency 'slim'
+
+        src = Slim::Template.new(:disable_capture => true,
+                                 :generator => Temple::Generators::RailsOutputBuffer) { text }.precompiled_template
+
         parsed = parse_ruby src
       else
         tracker.error "Unkown template type in #{path}"
@@ -345,31 +323,30 @@ class Brakeman::Scanner
   #
   #Adds the processed models to tracker.models
   def process_models
-    model_files = Dir.glob(@app_path + "/models/*.rb").sort
-    model_files.reject! { |f| @skip_files.match f } if @skip_files
-
-    total = model_files.length
+    total = @app_tree.model_paths.length
     current = 0
 
-    model_files.each do |f|
-      if @report_progress
-        $stderr.print " #{current}/#{total} files processed\r"
-        current += 1
-      end
-
+    @app_tree.model_paths.each do |f|
+      Brakeman.debug "Processing #{f}"
+      report_progress(current, total)
+      current += 1
       process_model f
-
     end
   end
 
   def process_model path
     begin
-      @processor.process_model(parse_ruby(File.read(path)), path)
+      @processor.process_model(parse_ruby(@app_tree.read_path(path)), path)
     rescue Racc::ParseError => e
       tracker.error e, "could not parse #{path}"
     rescue Exception => e
       tracker.error e.exception(e.message + "\nWhile processing #{path}"), e.backtrace
     end
+  end
+
+  def report_progress(current, total, type = "files")
+    return unless @options[:report_progress]
+    $stderr.print " #{current}/#{total} #{type} processed\r"
   end
 
   def index_call_sites
@@ -383,63 +360,5 @@ class Brakeman::Scanner
   end
 end
 
-#This is from Rails 3 version of the Erubis handler
-class Brakeman::RailsXSSErubis < ::Erubis::Eruby
-
-  def add_preamble(src)
-    # src << "_buf = ActionView::SafeBuffer.new;\n"
-  end
-
-  def add_text(src, text)
-    if text == "\n"
-      src << "\n"
-    elsif text.include? "\n"
-      lines = text.split("\n")
-      if text.match(/\n\z/)
-        lines.each do |line|
-          src << "@output_buffer << ('" << escape_text(line) << "'.html_safe!);\n"
-        end
-      else
-        lines[0..-2].each do |line|
-          src << "@output_buffer << ('" << escape_text(line) << "'.html_safe!);\n"
-        end
-
-        src << "@output_buffer << ('" << escape_text(lines.last) << "'.html_safe!);"
-      end
-    else
-      src << "@output_buffer << ('" << escape_text(text) << "'.html_safe!);"
-    end
-  end
-
-  BLOCK_EXPR = /\s+(do|\{)(\s*\|[^|]*\|)?\s*\Z/
-
-  def add_expr_literal(src, code)
-    if code =~ BLOCK_EXPR
-      src << '@output_buffer.append= ' << code
-    else
-      src << '@output_buffer.append= (' << code << ');'
-    end
-  end
-
-  def add_stmt(src, code)
-    if code =~ BLOCK_EXPR
-      src << '@output_buffer.append_if_string= ' << code
-    else
-      super
-    end
-  end
-
-  def add_expr_escaped(src, code)
-    if code =~ BLOCK_EXPR
-      src << "@output_buffer.safe_append= " << code
-    else
-      src << "@output_buffer.safe_concat(" << code << ");"
-    end
-  end
-
-  #Add code to output buffer.
-  def add_postamble(src)
-    # src << '_buf.to_s'
-  end
-end
-
+# This is to allow operation without loading the Haml library
+module Haml; class Error < StandardError; end; end

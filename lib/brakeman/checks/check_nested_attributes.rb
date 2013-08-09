@@ -20,14 +20,16 @@ class Brakeman::CheckNestedAttributes < Brakeman::BaseCheck
       end
 
       warn :warning_type => "Nested Attributes",
+        :warning_code => :CVE_2010_3933,
         :message => message,
         :confidence => CONFIDENCE[:high],
-        :file => gemfile_or_environment
+        :file => gemfile_or_environment,
+        :link_path => "https://groups.google.com/d/topic/rubyonrails-security/-fkT0yja_gw/discussion"
     end
   end
 
   def uses_nested_attributes?
-    tracker.models.each do |name, model|
+    active_record_models.each do |name, model|
       return true if model[:options][:accepts_nested_attributes_for]
     end
 

@@ -1,23 +1,33 @@
 require 'set'
 require 'brakeman/processors/alias_processor'
 require 'brakeman/processors/lib/render_helper'
+require 'brakeman/tracker'
 
 #Processes aliasing in templates.
 #Handles calls to +render+.
 class Brakeman::TemplateAliasProcessor < Brakeman::AliasProcessor
   include Brakeman::RenderHelper
 
-  FORM_METHODS = Set.new([:form_for, :remote_form_for, :form_remote_for])
+  FORM_METHODS = Set[:form_for, :remote_form_for, :form_remote_for]
 
-  def initialize tracker, template
-    super()
-    @tracker = tracker
+  def initialize tracker, template, called_from = nil
+    super tracker
     @template = template
+    @called_from = called_from
   end
 
   #Process template
   def process_template name, args
-    super name, args, "Template:#{@template[:name]}"
+    if @called_from
+      unless @called_from.grep(/Template:#{name}$/).empty?
+        Brakeman.debug "Skipping circular render from #{@template[:name]} to #{name}"
+        return
+      end
+
+      super name, args, @called_from + ["Template:#{@template[:name]}"]
+    else
+      super name, args, ["Template:#{@template[:name]}"]
+    end
   end
 
   #Determine template name
@@ -28,32 +38,38 @@ class Brakeman::TemplateAliasProcessor < Brakeman::AliasProcessor
     name
   end
 
+  UNKNOWN_MODEL_CALL = Sexp.new(:call, Sexp.new(:const, Brakeman::Tracker::UNKNOWN_MODEL), :new)
+  FORM_BUILDER_CALL = Sexp.new(:call, Sexp.new(:const, :FormBuilder), :new)
+
   #Looks for form methods and iterating over collections of Models
   def process_call_with_block exp
     process_default exp
-    
-    call = exp[1]
-    target = call[1]
-    method = call[2]
-    args = exp[2]
-    block = exp[3]
 
-    #Check for e.g. Model.find.each do ... end
-    if method == :each and args and block and model = get_model_target(target)
-      if sexp? args and args.node_type == :lasgn
-        if model == target[1]
-          env[Sexp.new(:lvar, args[1])] = Sexp.new(:call, model, :new, Sexp.new(:arglist))
-        else
-          env[Sexp.new(:lvar, args[1])] = Sexp.new(:call, Sexp.new(:const, Brakeman::Tracker::UNKNOWN_MODEL), :new, Sexp.new(:arglist))
+    call = exp.block_call
+
+    if call? call
+      target = call.target
+      method = call.method
+      arg = exp.block_args.first_param
+      block = exp.block
+
+      #Check for e.g. Model.find.each do ... end
+      if method == :each and arg and block and model = get_model_target(target)
+        if arg.is_a? Symbol
+          if model == target.target
+            env[Sexp.new(:lvar, arg)] = Sexp.new(:call, model, :new)
+          else
+            env[Sexp.new(:lvar, arg)] = UNKNOWN_MODEL_CALL
+          end
+
+          process block if sexp? block
         end
-        
-        process block if sexp? block
-      end
-    elsif FORM_METHODS.include? method
-      if sexp? args and args.node_type == :lasgn
-        env[Sexp.new(:lvar, args[1])] = Sexp.new(:call, Sexp.new(:const, :FormBuilder), :new, Sexp.new(:arglist)) 
+      elsif FORM_METHODS.include? method
+        if arg.is_a? Symbol
+          env[Sexp.new(:lvar, arg)] = FORM_BUILDER_CALL
 
-        process block if sexp? block
+          process block if sexp? block
+        end
       end
     end
 
@@ -65,9 +81,9 @@ class Brakeman::TemplateAliasProcessor < Brakeman::AliasProcessor
   #Checks if +exp+ is a call to Model.all or Model.find*
   def get_model_target exp
     if call? exp
-      target = exp[1]
+      target = exp.target
 
-      if exp[2] == :all or exp[2].to_s[0,4] == "find"
+      if exp.method == :all or exp.method.to_s[0,4] == "find"
         models = Set.new @tracker.models.keys
 
         begin
@@ -84,11 +100,17 @@ class Brakeman::TemplateAliasProcessor < Brakeman::AliasProcessor
     false
   end
 
+  #Ignore `<<` calls on template variables which are used by the templating
+  #library (HAML, ERB, etc.)
   def find_push_target exp
     if sexp? exp
-      if exp.node_type == :lvar and (exp[1] == :_buf or exp[1] == :_erbout)
+      if exp.node_type == :lvar and (exp.value == :_buf or exp.value == :_erbout)
         return nil
-      elsif exp.node_type == :ivar and exp[1] == :@output_buffer
+      elsif exp.node_type == :ivar and exp.value == :@output_buffer
+        return nil
+      elsif exp.node_type == :call and call? exp.target and
+        exp.target.method == :_hamlout and exp.method == :buffer
+
         return nil
       end
     end

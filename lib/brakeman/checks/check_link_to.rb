@@ -12,95 +12,102 @@ class Brakeman::CheckLinkTo < Brakeman::CheckCrossSiteScripting
   def run_check
     return unless version_between?("2.0.0", "2.9.9") and not tracker.config[:escape_html]
 
-    @ignore_methods = Set.new([:button_to, :check_box, :escapeHTML, :escape_once,
+    @ignore_methods = Set[:button_to, :check_box, :escapeHTML, :escape_once,
                            :field_field, :fields_for, :h, :hidden_field,
                            :hidden_field, :hidden_field_tag, :image_tag, :label,
                            :mail_to, :radio_button, :select,
                            :submit_tag, :text_area, :text_field,
                            :text_field_tag, :url_encode, :url_for,
-                           :will_paginate] ).merge tracker.options[:safe_methods]
+                           :will_paginate].merge tracker.options[:safe_methods]
 
     @known_dangerous = []
     #Ideally, I think this should also check to see if people are setting
     #:escape => false
-    methods = tracker.find_call :target => false, :method => :link_to 
-
     @models = tracker.models.keys
     @inspect_arguments = tracker.options[:check_arguments]
 
-    methods.each do |call|
-      process_result call
-    end
+    tracker.find_call(:target => false, :method => :link_to).each {|call| process_result call}
   end
 
   def process_result result
+    return if duplicate? result
+
     #Have to make a copy of this, otherwise it will be changed to
     #an ignored method call by the code above.
     call = result[:call] = result[:call].dup
 
+    first_arg = call.first_arg
+    second_arg = call.second_arg
+
     @matched = false
 
-    return if call[3][1].nil?
+    #Skip if no arguments(?) or first argument is a hash
+    return if first_arg.nil? or hash? first_arg
 
-    #Only check first argument for +link_to+, as the second
-    #will *usually* be a record or escaped.
-    first_arg = process call[3][1]
+    if version_between? "2.0.0", "2.2.99"
+      check_argument result, first_arg
 
-    type, match = has_immediate_user_input? first_arg
-
-    if type
-      case type
-      when :params
-        message = "Unescaped parameter value in link_to"
-      when :cookies
-        message = "Unescaped cookie value in link_to"
-      else
-        message = "Unescaped user input value in link_to"
+      if second_arg and not hash? second_arg
+        check_argument result, second_arg
       end
-
-      unless duplicate? result
-        add_result result
-
-        warn :result => result,
-          :warning_type => "Cross Site Scripting", 
-          :message => message,
-          :confidence => CONFIDENCE[:high]
-      end
-
-    elsif not tracker.options[:ignore_model_output] and match = has_immediate_model?(first_arg)
-      method = match[2]
-
-      unless duplicate? result or IGNORE_MODEL_METHODS.include? method
-        add_result result
-
-        if MODEL_METHODS.include? method or method.to_s =~ /^find_by/
-          confidence = CONFIDENCE[:high]
-        else
-          confidence = CONFIDENCE[:med]
-        end
-
-        warn :result => result,
-          :warning_type => "Cross Site Scripting", 
-          :message => "Unescaped model attribute in link_to",
-          :confidence => confidence
-      end
-
-    elsif @matched
-      if @matched == :model and not tracker.options[:ignore_model_output]
-        message = "Unescaped model attribute in link_to"
-      elsif @matched == :params
-        message = "Unescaped parameter value in link_to"
-      end
-
-      if message and not duplicate? result
-        add_result result
-
-        warn :result => result, 
-          :warning_type => "Cross Site Scripting", 
-          :message => message,
-          :confidence => CONFIDENCE[:med]
-      end
+    elsif second_arg
+      #Only check first argument if there is a second argument
+      #in Rails 2.3.x
+      check_argument result, first_arg
     end
+  end
+
+  # Check the argument for possible xss exploits
+  def check_argument result, exp
+    argument = process(exp)
+    !check_user_input(result, argument) && !check_method(result, argument) && !check_matched(result, @matched)
+  end
+
+  # Check we should warn about the user input
+  def check_user_input(result, argument)
+    input = has_immediate_user_input?(argument)
+    return false unless input
+
+    message = "Unescaped #{friendly_type_of input} in link_to"
+
+    warn_xss(result, message, input.match, CONFIDENCE[:high])
+  end
+
+  # Check if we should warn about the specified method
+  def check_method(result, argument)
+    return false if tracker.options[:ignore_model_output]
+    match = has_immediate_model?(argument)
+    return false unless match
+    method = match.method
+    return false if IGNORE_MODEL_METHODS.include? method
+
+    confidence = CONFIDENCE[:med]
+    confidence = CONFIDENCE[:high] if MODEL_METHODS.include? method or method.to_s =~ /^find_by/
+    warn_xss(result, "Unescaped model attribute in link_to", match, confidence)
+  end
+
+  # Check if we should warn about the matched result
+  def check_matched(result, matched = nil)
+    return false unless matched
+    return false if matched.type == :model and tracker.options[:ignore_model_output]
+
+    message = "Unescaped #{friendly_type_of matched} in link_to"
+
+    warn_xss(result, message, @matched.match, CONFIDENCE[:med])
+  end
+
+  # Create a warn for this xss
+  def warn_xss(result, message, user_input, confidence)
+    add_result(result)
+    warn :result => result,
+      :warning_type => "Cross Site Scripting",
+      :warning_code => :xss_link_to,
+      :message => message,
+      :user_input => user_input,
+      :confidence => confidence,
+      :link_path => "link_to"
+
+    true
   end
 
   def process_call exp
@@ -112,16 +119,13 @@ class Brakeman::CheckLinkTo < Brakeman::CheckCrossSiteScripting
   def actually_process_call exp
     return if @matched
 
-    target = exp[1]
-    if sexp? target
-      target = process target.dup
-    end
+    target = exp.target
+    target = process target.dup if sexp? target
 
     #Bare records create links to the model resource,
     #not a string that could have injection
-    if model_name? target and context == [:call, :arglist]
-      return exp
-    end
+    #TODO: Needs test? I think this is broken?
+    return exp if model_name? target and context == [:call, :arglist]
 
     super
   end

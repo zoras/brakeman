@@ -1,5 +1,33 @@
 Rails31::Application.routes.draw do
   resources :users
+  match 'users/test_simple_helper' => "users#test_simple_helper"
+  match 'users/test_less_simple_helpers' => "users#test_less_simple_helpers"
+  match 'users/test_less_simple_helpers' => "users#test_assign_twice"
+
+  resources :users do
+    get 'mixin_action'
+    get 'mixin_default'
+  end
+
+  resources :other do
+    get :a
+    delete 'f'
+  end
+
+  controller :other do
+    get 'b'
+    post 'something' => 'c'
+    put 'dee', :to => :d
+    get 'test_partial1'
+    get 'test_partial2'
+    get 'test_string_interp'
+  end
+
+  match 'e', :to => 'other#e', :as => 'eeeee'
+
+  get 'g' => 'other#g'
+
+  match 'blah/:id', :action => 'blarg' 
 
   # The priority is based upon order of creation:
   # first created -> highest priority.

@@ -14,21 +14,11 @@ class Brakeman::CheckWithoutProtection < Brakeman::BaseCheck
       return
     end
 
-    models = []
-    tracker.models.each do |name, m|
-      if parent? m, :"ActiveRecord::Base"
-        models << name
-      end
-    end
-
-    return if models.empty?
-
-    @results = Set.new
+    return if active_record_models.empty?
 
     Brakeman.debug "Finding all mass assignments"
-    calls = tracker.find_call :targets => models, :methods => [:new,
+    calls = tracker.find_call :targets => active_record_models.keys, :methods => [:new,
       :attributes=, 
-      :update_attribute, 
       :update_attributes, 
       :update_attributes!,
       :create,
@@ -43,28 +33,30 @@ class Brakeman::CheckWithoutProtection < Brakeman::BaseCheck
   #All results should be Model.new(...) or Model.attributes=() calls
   def process_result res
     call = res[:call]
-    last_arg = call[3][-1]
+    last_arg = call.last_arg
 
-    if hash? last_arg and not @results.include? call
+    if hash? last_arg and not call.original_line and not duplicate? res
 
-      hash_iterate(last_arg) do |k,v|
-        if symbol? k and k[1] == :without_protection and v[0] == :true
-          @results << call
+      if value = hash_access(last_arg, :without_protection)
+        if true? value
+          add_result res
 
-          if include_user_input? call[3]
+          if input = include_user_input?(call.arglist)
             confidence = CONFIDENCE[:high]
+            user_input = input.match
           else
             confidence = CONFIDENCE[:med]
+            user_input = nil
           end
 
           warn :result => res, 
             :warning_type => "Mass Assignment", 
+            :warning_code => :mass_assign_without_protection,
             :message => "Unprotected mass assignment",
-            :line => call.line,
             :code => call, 
+            :user_input => user_input,
             :confidence => confidence
 
-          break
         end
       end
     end

@@ -19,7 +19,10 @@ class Brakeman::CheckExecute < Brakeman::BaseCheck
     check_for_backticks tracker
 
     Brakeman.debug "Finding other system calls"
-    calls = tracker.find_call :targets => [:IO, :Open3, :Kernel, nil], :methods => [:exec, :popen, :popen3, :syscall, :system]
+    calls = tracker.find_call :targets => [:IO, :Open3, :Kernel, :'POSIX::Spawn', :Process, nil],
+      :methods => [:capture2, :capture2e, :capture3, :exec, :pipeline, :pipeline_r,
+        :pipeline_rw, :pipeline_start, :pipeline_w, :popen, :popen2, :popen2e, 
+        :popen3, :spawn, :syscall, :system]
 
     Brakeman.debug "Processing system calls"
     calls.each do |result|
@@ -30,12 +33,12 @@ class Brakeman::CheckExecute < Brakeman::BaseCheck
   #Processes results from Tracker#find_call.
   def process_result result
     call = result[:call]
+    args = call.arglist
+    first_arg = call.first_arg
 
-    args = process call[3]
-
-    case call[2]
+    case call.method
     when :system, :exec
-      failure = include_user_input?(args[1]) || include_interp?(args[1])
+      failure = include_user_input?(first_arg) || include_interp?(first_arg)
     else
       failure = include_user_input?(args) || include_interp?(args)
     end
@@ -43,7 +46,7 @@ class Brakeman::CheckExecute < Brakeman::BaseCheck
     if failure and not duplicate? result
       add_result result
 
-      if @string_interp
+      if failure.type == :interp #Not from user input
         confidence = CONFIDENCE[:med]
       else
         confidence = CONFIDENCE[:high]
@@ -51,9 +54,10 @@ class Brakeman::CheckExecute < Brakeman::BaseCheck
 
       warn :result => result,
         :warning_type => "Command Injection", 
+        :warning_code => :command_injection,
         :message => "Possible command injection",
-        :line => call.line,
         :code => call,
+        :user_input => failure.match,
         :confidence => confidence
     end
   end
@@ -75,25 +79,20 @@ class Brakeman::CheckExecute < Brakeman::BaseCheck
 
     exp = result[:call]
 
-    if include_user_input? exp
+    if input = include_user_input?(exp)
       confidence = CONFIDENCE[:high]
+      user_input = input.match
     else
       confidence = CONFIDENCE[:med]
+      user_input = nil
     end
 
-    warning = { :warning_type => "Command Injection",
+    warn :result => result,
+      :warning_type => "Command Injection",
+      :warning_code => :command_injection,
       :message => "Possible command injection",
-      :line => exp.line,
       :code => exp,
-      :confidence => confidence }
-
-    if result[:location][0] == :template
-      warning[:template] = result[:location][1]
-    else
-      warning[:class] = result[:location][1]
-      warning[:method] = result[:location][2]
-    end
-
-    warn warning
+      :user_input => user_input,
+      :confidence => confidence
   end
 end

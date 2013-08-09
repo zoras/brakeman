@@ -3,16 +3,20 @@ require 'digest/sha1'
 #Processes a call to render() in a controller or template
 module Brakeman::RenderHelper
 
-  #Process s(:render, TYPE, OPTIONS)
+  #Process s(:render, TYPE, OPTION?, OPTIONS)
   def process_render exp
     process_default exp
     @rendered = true
-    case exp[1]
-    when :action
+    case exp.render_type
+    when :action, :template
       process_action exp[2][1], exp[3]
     when :default
-      process_template template_name, exp[3]
-    when :partial
+      begin
+        process_template template_name, exp[3]
+      rescue ArgumentError
+        Brakeman.debug "Problem processing render: #{exp}"
+      end
+    when :partial, :layout
       process_partial exp[2], exp[3]
     when :nothing
     end
@@ -36,19 +40,22 @@ module Brakeman::RenderHelper
       return
     end
 
-    names = name[1].to_s.split("/")
+    names = name.value.to_s.split("/")
     names[-1] = "_" + names[-1]
     process_template template_name(names.join("/")), args
   end
 
   #Processes a given action
   def process_action name, args
-    process_template template_name(name), args
+    if name.is_a? String or name.is_a? Symbol
+      process_template template_name(name), args
+    end
   end
 
   #Processes a template, adding any instance variables
   #to its environment.
   def process_template name, args, called_from = nil
+    Brakeman.debug "Rendering #{name} (#{called_from})"
     #Get scanned source for this template
     name = name.to_s.gsub(/^\//, "")
     template = @tracker.templates[name.to_sym]
@@ -57,7 +64,7 @@ module Brakeman::RenderHelper
       return 
     end
 
-    template_env = only_ivars
+    template_env = only_ivars(:include_request_vars)
 
     #Hash the environment and the source of the template to avoid
     #pointlessly processing templates, which can become prohibitively
@@ -75,7 +82,7 @@ module Brakeman::RenderHelper
       #Process layout
       if string? options[:layout]
         process_template "layouts/#{options[:layout][1]}", nil
-      elsif sexp? options[:layout] and options[:layout][0] == :false
+      elsif node_type? options[:layout], :false
         #nothing
       elsif not template[:name].to_s.match(/[^\/_][^\/]+$/)
         #Don't do this for partials
@@ -85,7 +92,7 @@ module Brakeman::RenderHelper
 
       if hash? options[:locals]
         hash_iterate options[:locals] do |key, value|
-          template_env[Sexp.new(:call, nil, key[1], Sexp.new(:arglist))] = value
+          template_env[Sexp.new(:call, nil, key.value)] = value
         end
       end
 
@@ -98,17 +105,21 @@ module Brakeman::RenderHelper
         #Unless the :as => :variable_name option is used
         if options[:as]
           if string? options[:as] or symbol? options[:as]
-            variable = options[:as][1].to_sym
+            variable = options[:as].value.to_sym
           end
         end
 
-        template_env[Sexp.new(:call, nil, variable, Sexp.new(:arglist))] = Sexp.new(:call, Sexp.new(:const, Brakeman::Tracker::UNKNOWN_MODEL), :new, Sexp.new(:arglist))
+        collection = get_class_target(options[:collection]) || Brakeman::Tracker::UNKNOWN_MODEL
+
+        template_env[Sexp.new(:call, nil, variable)] = Sexp.new(:call, Sexp.new(:const, collection), :new)
       end
 
       #Set original_line for values so it is clear
       #that values came from another file
       template_env.all.each do |var, value|
         unless value.original_line
+          #TODO: This has been broken for a while now and no one noticed
+          #so maybe we can skip it
           value.original_line = value.line
         end
       end
@@ -116,7 +127,7 @@ module Brakeman::RenderHelper
       #Run source through AliasProcessor with instance variables from the
       #current environment.
       #TODO: Add in :locals => { ... } to environment
-      src = Brakeman::TemplateAliasProcessor.new(@tracker, template).process_safely(template[:src], template_env)
+      src = Brakeman::TemplateAliasProcessor.new(@tracker, template, called_from).process_safely(template[:src], template_env)
 
       #Run alias-processed src through the template processor to pull out
       #information and outputs.
@@ -139,10 +150,22 @@ module Brakeman::RenderHelper
 
     hash_iterate args do |key, value|
       if symbol? key
-        options[key[1]] = value
+        options[key.value] = value
       end
     end
 
     options
+  end
+
+  def get_class_target sexp
+    if call? sexp
+      get_class_target sexp.target
+    else
+      begin
+        class_name sexp
+      rescue
+        nil
+      end
+    end
   end
 end

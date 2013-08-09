@@ -1,6 +1,8 @@
 require 'brakeman/processors/base_processor'
 
 #Finds method calls matching the given target(s).
+#   #-- This should be deprecated --#
+#   #--  Do not use for new code  --#
 #
 #Targets/methods can be:
 #
@@ -67,36 +69,29 @@ class Brakeman::FindCall < Brakeman::BaseProcessor
 
   #Process body of method
   def process_methdef exp
-    process exp[3]
+    process_all exp.body
   end
 
-  #Process body of method
-  def process_selfdef exp
-    process exp[4]
-  end
+  alias :process_selfdef :process_methdef
 
   #Process body of block
   def process_rlist exp
-    exp[1..-1].each do |e|
-      process e
-    end
-
-    exp
+    process_all exp
   end
 
   #Look for matching calls and add them to results
   def process_call exp
-    target = get_target exp[1] 
-    method = exp[2]
+    target = get_target exp.target
+    method = exp.method
 
-    process exp[3]
+    process_call_args exp
 
     if match(@find_targets, target) and match(@find_methods, method)
 
       if @current_template
         @calls << Sexp.new(:result, @current_template, exp).line(exp.line)
       else
-        @calls << Sexp.new(:result, @current_class, @current_method, exp).line(exp.line)
+        @calls << Sexp.new(:result, @current_module, @current_class, @current_method, exp).line(exp.line)
       end
 
     end
@@ -107,8 +102,8 @@ class Brakeman::FindCall < Brakeman::BaseProcessor
     #  User.find(:first, :conditions => "user = '#{params['user']}').name
     #
     #A search for User.find will not match this unless @in_depth is true.
-    if @in_depth and sexp? exp[1] and exp[1][0] == :call
-      process exp[1]
+    if @in_depth and node_type? exp.target, :call
+      process exp.target
     end
 
     exp
@@ -126,12 +121,10 @@ class Brakeman::FindCall < Brakeman::BaseProcessor
   def get_target exp
     if sexp? exp
       case exp.node_type
-      when :ivar, :lvar, :const
-        exp[1]
+      when :ivar, :lvar, :const, :lit
+        exp.value
       when :true, :false
-        exp[0]
-      when :lit
-        exp[1]
+        exp.node_type
       when :colon2
         class_name exp
       else
@@ -153,6 +146,8 @@ class Brakeman::FindCall < Brakeman::BaseProcessor
       else
         false
       end
+    when Sexp
+      search_terms == item
     when Enumerable
       if search_terms.empty?
         item == nil
@@ -176,10 +171,10 @@ class Brakeman::FindCall < Brakeman::BaseProcessor
   #Checks if +item+ is an instance of +klass+ by looking for Klass.new
   def is_instance_of? item, klass
     if call? item
-      if sexp? item[1]
-        item[2] == :new and item[1].node_type == :const and item[1][1] == klass
+      if sexp? item.target
+        item.method == :new and item.target.node_type == :const and item.target.value == klass
       else
-        item[2] == :new and item[1] == klass
+        item.method == :new and item.target == klass
       end
     else
       false

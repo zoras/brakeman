@@ -41,25 +41,28 @@ module Brakeman
 
   @debug = false
   @quiet = false
+  @loaded_dependencies = []
 
   #Run Brakeman scan. Returns Tracker object.
   #
   #Options:
   #
   #  * :app_path - path to root of Rails app (required)
-  #  * :assume_all_routes - assume all methods are routes (default: false)
+  #  * :assume_all_routes - assume all methods are routes (default: true)
   #  * :check_arguments - check arguments of methods (default: true)
   #  * :collapse_mass_assignment - report unprotected models in single warning (default: true)
   #  * :combine_locations - combine warning locations (default: true)
   #  * :config_file - configuration file
   #  * :escape_html - escape HTML by default (automatic)
   #  * :exit_on_warn - return false if warnings found, true otherwise. Not recommended for library use (default: false)
+  #  * :highlight_user_input - highlight user input in reported warnings (default: true)
   #  * :html_style - path to CSS file
   #  * :ignore_model_output - consider models safe (default: false)
+  #  * :interprocedural - limited interprocedural processing of method calls (default: false)
   #  * :message_limit - limit length of messages
   #  * :min_confidence - minimum confidence (0-2, 0 is highest)
-  #  * :output_file - file for output
-  #  * :output_format - format for output (:to_s, :to_tabs, :to_csv, :to_html)
+  #  * :output_files - files for output
+  #  * :output_formats - formats for output (:to_s, :to_tabs, :to_csv, :to_html)
   #  * :parallel_checks - run checks in parallel (default: true)
   #  * :print_report - if no output file specified, print to stdout (default: false)
   #  * :quiet - suppress most messages (default: true)
@@ -69,7 +72,8 @@ module Brakeman
   #  * :safe_methods - array of methods to consider safe
   #  * :skip_libs - do not process lib/ directory (default: false)
   #  * :skip_checks - checks not to run (run all if not specified)
-  #  * :summary_only - only output summary section of report 
+  #  * :absolute_paths - show absolute path of each file (default: false)
+  #  * :summary_only - only output summary section of report
   #                    (does not apply to tabs format)
   #
   #Alternatively, just supply a path as a string.
@@ -82,7 +86,6 @@ module Brakeman
     if @quiet
       options[:report_progress] = false
     end
-
     scan options
   end
 
@@ -92,88 +95,117 @@ module Brakeman
       options = { :app_path => options }
     end
 
-    options[:app_path] = File.expand_path(options[:app_path])
-
-    options = load_options(options[:config_file]).merge! options
-    options = get_defaults.merge! options
-    options[:output_format] = get_output_format options
-
-    app_path = options[:app_path]
-
-    abort("Please supply the path to a Rails application.") unless app_path and File.exist? app_path + "/app"
-
-    if File.exist? app_path + "/script/rails"
-      options[:rails3] = true
-      notify "[Notice] Detected Rails 3 application"
+    if options[:quiet] == :command_line
+      command_line = true
+      options.delete :quiet
     end
+
+    options = default_options.merge(load_options(options[:config_file], options[:quiet])).merge(options)
+
+    if options[:quiet].nil? and not command_line
+      options[:quiet] = true
+    end
+
+    options[:app_path] = File.expand_path(options[:app_path])
+    options[:output_formats] = get_output_formats options
 
     options
   end
 
+  CONFIG_FILES = [
+    File.expand_path("./config/brakeman.yml"),
+    File.expand_path("~/.brakeman/config.yml"),
+    File.expand_path("/etc/brakeman/config.yml")
+  ]
+
   #Load options from YAML file
-  def self.load_options config_file
-    config_file ||= ""
-
+  def self.load_options custom_location, quiet
     #Load configuration file
-    [File.expand_path(config_file),
-      File.expand_path("./config.yaml"),
-      File.expand_path("~/.brakeman/config.yaml"),
-      File.expand_path("/etc/brakeman/config.yaml"),
-      "#{File.expand_path(File.dirname(__FILE__))}/../lib/config.yaml"].each do |f|
+    if config = config_file(custom_location)
+      options = YAML.load_file config
 
-      if File.exist? f and not File.directory? f
-        notify "[Notice] Using configuration in #{f}"
-        options = YAML.load_file f
-        options.each do |k,v|
-          if v.is_a? Array
-            options[k] = Set.new v
-          end
-        end
+      if options
+        options.each { |k, v| options[k] = Set.new v if v.is_a? Array }
 
-        return options
+        # notify if options[:quiet] and quiet is nil||false
+        notify "[Notice] Using configuration in #{config}" unless (options[:quiet] || quiet)
+        options
+      else
+        notify "[Notice] Empty configuration file: #{config}" unless quiet
+        {}
       end
-      end
+    else
+      {}
+    end
+  end
 
-    return {}
+  def self.config_file custom_location = nil
+    supported_locations = [File.expand_path(custom_location || "")] + CONFIG_FILES
+    supported_locations.detect {|f| File.file?(f) }
   end
 
   #Default set of options
-  def self.get_defaults
-    { :skip_checks => Set.new, 
-      :check_arguments => true, 
+  def self.default_options
+    { :assume_all_routes => true,
+      :skip_checks => Set.new,
+      :check_arguments => true,
       :safe_methods => Set.new,
       :min_confidence => 2,
       :combine_locations => true,
       :collapse_mass_assignment => true,
+      :highlight_user_input => true,
       :ignore_redirect_to_model => true,
       :ignore_model_output => false,
       :message_limit => 100,
       :parallel_checks => true,
-      :quiet => true,
+      :relative_path => false,
       :report_progress => true,
-      :html_style => "#{File.expand_path(File.dirname(__FILE__))}/brakeman/format/style.css" 
+      :html_style => "#{File.expand_path(File.dirname(__FILE__))}/brakeman/format/style.css"
     }
   end
 
-  #Determine output format based on options[:output_format]
-  #or options[:output_file]
-  def self.get_output_format options
+  #Determine output formats based on options[:output_formats]
+  #or options[:output_files]
+  def self.get_output_formats options
     #Set output format
+    if options[:output_format] && options[:output_files] && options[:output_files].size > 1
+      raise ArgumentError, "Cannot specify output format if multiple output files specified"
+    end
     if options[:output_format]
-      case options[:output_format]
-      when :html, :to_html
-        :to_html
-      when :csv, :to_csv
-        :to_csv
-      when :pdf, :to_pdf
-        :to_pdf
-      when :tabs, :to_tabs
-        :to_tabs
-      else
-        :to_s
-      end
+      get_formats_from_output_format options[:output_format]
+    elsif options[:output_files]
+      get_formats_from_output_files options[:output_files]
     else
-      case options[:output_file]
+      begin
+        require 'terminal-table'
+        return [:to_s]
+      rescue LoadError
+        return [:to_json]
+      end
+    end
+  end
+
+  def self.get_formats_from_output_format output_format
+    case output_format
+    when :html, :to_html
+      [:to_html]
+    when :csv, :to_csv
+      [:to_csv]
+    when :pdf, :to_pdf
+      [:to_pdf]
+    when :tabs, :to_tabs
+      [:to_tabs]
+    when :json, :to_json
+      [:to_json]
+    else
+      [:to_s]
+    end
+  end
+  private_class_method :get_formats_from_output_format
+
+  def self.get_formats_from_output_files output_files
+    output_files.map do |output_file|
+      case output_file
       when /\.html$/i
         :to_html
       when /\.csv$/i
@@ -182,30 +214,43 @@ module Brakeman
         :to_pdf
       when /\.tabs$/i
         :to_tabs
+      when /\.json$/i
+        :to_json
       else
         :to_s
       end
     end
   end
+  private_class_method :get_formats_from_output_files
 
   #Output list of checks (for `-k` option)
   def self.list_checks
     require 'brakeman/scanner'
+    format_length = 30
+
     $stderr.puts "Available Checks:"
-    $stderr.puts "-" * 30
-    $stderr.puts Checks.checks.map { |c|
-      c.to_s.match(/^Brakeman::(.*)$/)[1].ljust(27) << c.description
-    }.sort.join "\n"
+    $stderr.puts "-" * format_length
+    Checks.checks.each do |check|
+      $stderr.printf("%-#{format_length}s%s\n", check.name, check.description)
+    end
   end
 
   #Installs Rake task for running Brakeman,
   #which basically means copying `lib/brakeman/brakeman.rake` to
   #`lib/tasks/brakeman.rake` in the current Rails application.
-  def self.install_rake_task
-    if not File.exists? "Rakefile"
-      abort "No Rakefile detected"
-    elsif File.exists? "lib/tasks/brakeman.rake"
-      abort "Task already exists"
+  def self.install_rake_task install_path = nil
+    if install_path
+      rake_path = File.join(install_path, "Rakefile")
+      task_path = File.join(install_path, "lib", "tasks", "brakeman.rake")
+    else
+      rake_path = "Rakefile"
+      task_path = File.join("lib", "tasks", "brakeman.rake")
+    end
+
+    if not File.exists? rake_path
+      raise RakeInstallError, "No Rakefile detected"
+    elsif File.exists? task_path
+      raise RakeInstallError, "Task already exists"
     end
 
     require 'fileutils'
@@ -217,13 +262,13 @@ module Brakeman
 
     path = File.expand_path(File.dirname(__FILE__))
 
-    FileUtils.cp "#{path}/brakeman/brakeman.rake", "lib/tasks/brakeman.rake"
+    FileUtils.cp "#{path}/brakeman/brakeman.rake", task_path
 
-    if File.exists? "lib/tasks/brakeman.rake"
-      notify "Task created in lib/tasks/brakeman.rake"
+    if File.exists? task_path
+      notify "Task created in #{task_path}"
       notify "Usage: rake brakeman:run[output_file]"
     else
-      notify "Could not create task"
+      raise RakeInstallError, "Could not create task"
     end
   end
 
@@ -262,13 +307,11 @@ module Brakeman
     begin
       require 'brakeman/scanner'
     rescue LoadError
-      abort "Cannot find lib/ directory."
+      raise NoBrakemanError, "Cannot find lib/ directory."
     end
 
     #Start scanning
     scanner = Scanner.new options
-
-    notify "[Notice] Using Ruby #{RUBY_VERSION}. Please make sure this matches the one used to run your Rails application."
 
     notify "Processing application in #{options[:app_path]}"
     tracker = scanner.process
@@ -278,32 +321,40 @@ module Brakeman
     else
       notify "Runnning checks..."
     end
+
     tracker.run_checks
 
-    if options[:output_file]
+    self.filter_warnings tracker, options
+
+    if options[:output_files]
       notify "Generating report..."
 
-      File.open options[:output_file], "w" do |f|
-        f.puts tracker.report.send(options[:output_format])
-      end
-      notify "Report saved in '#{options[:output_file]}'"
+      write_report_to_files tracker, options[:output_files]
     elsif options[:print_report]
       notify "Generating report..."
 
-      puts tracker.report.send(options[:output_format])
-    end
-
-    if options[:exit_on_warn]
-      tracker.checks.all_warnings.each do |warning|
-        next if warning.confidence > options[:min_confidence]
-        return false
-      end
-      
-      return true
+      write_report_to_formats tracker, options[:output_formats]
     end
 
     tracker
   end
+
+  def self.write_report_to_files tracker, output_files
+    output_files.each_with_index do |output_file, idx|
+      File.open output_file, "w" do |f|
+        f.write tracker.report.format(tracker.options[:output_formats][idx])
+      end
+      notify "Report saved in '#{output_file}'"
+    end
+  end
+  private_class_method :write_report_to_files
+
+  def self.write_report_to_formats tracker, output_formats
+    output_formats.each do |output_format|
+      puts tracker.report.format(output_format)
+    end
+  end
+  private_class_method :write_report_to_formats
 
   #Rescan a subset of files in a Rails application.
   #
@@ -334,4 +385,69 @@ module Brakeman
   def self.debug message
     $stderr.puts message if @debug
   end
+
+  # Compare JSON ouptut from a previous scan and return the diff of the two scans
+  def self.compare options
+    require 'multi_json'
+    require 'brakeman/differ'
+    raise ArgumentError.new("Comparison file doesn't exist") unless File.exists? options[:previous_results_json]
+
+    begin
+      previous_results = MultiJson.load(File.read(options[:previous_results_json]), :symbolize_keys => true)[:warnings]
+    rescue MultiJson::DecodeError
+      self.notify "Error parsing comparison file: #{options[:previous_results_json]}"
+      exit!
+    end
+
+    tracker = run(options)
+
+    new_results = MultiJson.load(tracker.report.to_json, :symbolize_keys => true)[:warnings]
+
+    Brakeman::Differ.new(new_results, previous_results).diff
+  end
+
+  def self.load_brakeman_dependency name
+    return if @loaded_dependencies.include? name
+
+    begin
+      require name
+    rescue LoadError => e
+      $stderr.puts e.message
+      $stderr.puts "Please install the appropriate dependency."
+      exit! -1
+    end
+  end
+
+  def self.filter_warnings tracker, options
+    require 'brakeman/report/ignore/config'
+
+    app_tree = Brakeman::AppTree.from_options(options)
+
+    if options[:ignore_file]
+      file = options[:ignore_file]
+    elsif app_tree.exists? "config/brakeman.ignore"
+      file = app_tree.expand_path("config/brakeman.ignore")
+    elsif not options[:interactive_ignore]
+      return
+    end
+
+    notify "Filtering warnings..."
+
+    if options[:interactive_ignore]
+      require 'brakeman/report/ignore/interactive'
+      config = InteractiveIgnorer.new(file, tracker.warnings).start
+    else
+      notify "[Notice] Using '#{file}' to filter warnings"
+      config = IgnoreConfig.new(file, tracker.warnings)
+      config.read_from_file
+      config.filter_ignored
+    end
+
+    tracker.ignored_filter = config
+  end
+
+  class DependencyError < RuntimeError; end
+  class RakeInstallError < RuntimeError; end
+  class NoBrakemanError < RuntimeError; end
+  class NoApplication < RuntimeError; end
 end

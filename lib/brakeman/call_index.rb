@@ -5,10 +5,8 @@ class Brakeman::CallIndex
 
   #Initialize index with calls from FindAllCalls
   def initialize calls
-    @calls_by_method = Hash.new { |h,k| h[k] = [] }
-    @calls_by_target = Hash.new { |h,k| h[k] = [] }
-    @methods = Set.new
-    @targets = Set.new
+    @calls_by_method = Hash.new
+    @calls_by_target = Hash.new
 
     index_calls calls
   end
@@ -25,7 +23,7 @@ class Brakeman::CallIndex
     target = options[:target] || options[:targets]
     method = options[:method] || options[:methods]
     nested = options[:nested]
-    
+
     if options[:chained]
       return find_chain options
     #Find by narrowest category
@@ -67,48 +65,43 @@ class Brakeman::CallIndex
     calls
   end
 
-  def remove_template_indexes
+  def remove_template_indexes template_name = nil
     @calls_by_method.each do |name, calls|
       calls.delete_if do |call|
-        call[:location][0] == :template
+        from_template call, template_name
       end
-
-      @methods.delete name.to_s if calls.empty?
     end
 
     @calls_by_target.each do |name, calls|
       calls.delete_if do |call|
-        call[:location][0] == :template
+        from_template call, template_name
       end
-
-      @targets.delete name.to_s if calls.empty?
     end
   end
 
   def remove_indexes_by_class classes
     @calls_by_method.each do |name, calls|
       calls.delete_if do |call|
-        call[:location][0] == :class and classes.include? call[:location][1]
+        call[:location][:type] == :class and classes.include? call[:location][:class]
       end
-
-      @methods.delete name.to_s if calls.empty?
     end
 
     @calls_by_target.each do |name, calls|
       calls.delete_if do |call|
-        call[:location][0] == :class and classes.include? call[:location][1]
+        call[:location][:type] == :class and classes.include? call[:location][:class]
       end
-
-      @targets.delete name.to_s if calls.empty?
     end
   end
 
   def index_calls calls
     calls.each do |call|
-      @methods << call[:method].to_s
-      @targets << call[:target].to_s
+      @calls_by_method[call[:method]] ||= []
       @calls_by_method[call[:method]] << call
-      @calls_by_target[call[:target]] << call
+
+      unless call[:target].is_a? Sexp
+        @calls_by_target[call[:target]] ||= []
+        @calls_by_target[call[:target]] << call
+      end
     end
   end
 
@@ -128,18 +121,6 @@ class Brakeman::CallIndex
   def calls_by_target target
     if target.is_a? Array
       calls_by_targets target
-    elsif target.is_a? Regexp
-      targets = @targets.select do |t|
-        t.match target
-      end
-
-      if targets.empty?
-        []
-      elsif targets.length > 1
-        calls_by_targets targets
-      else
-        calls_by_target[targets.first]
-      end
     else
       @calls_by_target[target]
     end
@@ -158,20 +139,8 @@ class Brakeman::CallIndex
   def calls_by_method method
     if method.is_a? Array
       calls_by_methods method
-    elsif method.is_a? Regexp
-      methods = @methods.select do |m|
-        m.match method
-      end
-
-      if methods.empty?
-        []
-      elsif methods.length > 1
-        calls_by_methods methods
-      else
-        @calls_by_method[methods.first.to_sym]
-      end
     else
-      @calls_by_method[method.to_sym]
+      @calls_by_method[method.to_sym] || []
     end
   end
 
@@ -187,7 +156,7 @@ class Brakeman::CallIndex
   end
 
   def calls_with_no_target
-    @calls_by_target[nil]
+    @calls_by_target[nil] || []
   end
 
   def filter calls, key, value
@@ -236,5 +205,11 @@ class Brakeman::CallIndex
         call[:chain].first == target
       end
     end
+  end
+
+  def from_template call, template_name
+    return false unless call[:location][:type] == :template
+    return true if template_name.nil?
+    call[:location][:template] == template_name
   end
 end

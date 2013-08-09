@@ -24,9 +24,11 @@ class Brakeman::CheckQuoteTableName < Brakeman::BaseCheck
       end
 
       warn :warning_type => "SQL Injection",
+        :warning_code => :CVE_2011_2930,
         :message => message,
         :confidence => confidence,
-        :file => gemfile_or_environment
+        :file => gemfile_or_environment,
+        :link_path => "https://groups.google.com/d/topic/rubyonrails-security/ah5HN0S8OJs/discussion"
     end
   end
 

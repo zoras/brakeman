@@ -1,23 +1,26 @@
-require 'sexp_processor'
 require 'set'
-require 'active_support/inflector'
+require 'pathname'
 
 #This is a mixin containing utility methods.
 module Brakeman::Util
 
-  QUERY_PARAMETERS = Sexp.new(:call, Sexp.new(:call, nil, :request, Sexp.new(:arglist)), :query_parameters, Sexp.new(:arglist))
+  QUERY_PARAMETERS = Sexp.new(:call, Sexp.new(:call, nil, :request), :query_parameters)
 
-  PATH_PARAMETERS = Sexp.new(:call, Sexp.new(:call, nil, :request, Sexp.new(:arglist)), :path_parameters, Sexp.new(:arglist))
+  PATH_PARAMETERS = Sexp.new(:call, Sexp.new(:call, nil, :request), :path_parameters)
 
-  REQUEST_PARAMETERS = Sexp.new(:call, Sexp.new(:call, nil, :request, Sexp.new(:arglist)), :request_parameters, Sexp.new(:arglist))
+  REQUEST_PARAMETERS = Sexp.new(:call, Sexp.new(:call, nil, :request), :request_parameters)
 
-  PARAMETERS = Sexp.new(:call, nil, :params, Sexp.new(:arglist))
+  REQUEST_PARAMS = Sexp.new(:call, Sexp.new(:call, nil, :request), :parameters)
 
-  COOKIES = Sexp.new(:call, nil, :cookies, Sexp.new(:arglist))
+  REQUEST_ENV = Sexp.new(:call, Sexp.new(:call, nil, :request), :env)
 
-  SESSION = Sexp.new(:call, nil, :session, Sexp.new(:arglist))
+  PARAMETERS = Sexp.new(:call, nil, :params)
 
-  ALL_PARAMETERS = Set.new([PARAMETERS, QUERY_PARAMETERS, PATH_PARAMETERS, REQUEST_PARAMETERS])
+  COOKIES = Sexp.new(:call, nil, :cookies)
+
+  SESSION = Sexp.new(:call, nil, :session)
+
+  ALL_PARAMETERS = Set[PARAMETERS, QUERY_PARAMETERS, PATH_PARAMETERS, REQUEST_PARAMETERS, REQUEST_PARAMS]
 
   #Convert a string from "something_like_this" to "SomethingLikeThis"
   #
@@ -37,10 +40,11 @@ module Brakeman::Util
       downcase
   end
 
-  #Use ActiveSupport::Inflector to pluralize a word.
+  # stupid simple, used to delegate to ActiveSupport
   def pluralize word
-    ActiveSupport::Inflector.pluralize word
+    word + "s"
   end
+
 
   #Takes an Sexp like
   # (:hash, (:lit, :key), (:str, "value"))
@@ -72,25 +76,45 @@ module Brakeman::Util
       end
       index += 2
     end
-      
+
     hash << key << value
 
     hash
   end
 
+  #Get value from hash using key.
+  #
+  #If _key_ is a Symbol, it will be converted to a Sexp(:lit, key).
+  def hash_access hash, key
+    if key.is_a? Symbol
+      key = Sexp.new(:lit, key)
+    end
+
+    if index = hash.find_index(key) and index > 0
+      return hash[index + 1]
+    end
+
+    nil
+  end
+
+  #These are never modified
+  PARAMS_SEXP = Sexp.new(:params)
+  SESSION_SEXP = Sexp.new(:session)
+  COOKIES_SEXP = Sexp.new(:cookies)
+
   #Adds params, session, and cookies to environment
   #so they can be replaced by their respective Sexps.
   def set_env_defaults
-    @env[PARAMETERS] = Sexp.new(:params)
-    @env[SESSION] = Sexp.new(:session)
-    @env[COOKIES] = Sexp.new(:cookies)
+    @env[PARAMETERS] = PARAMS_SEXP
+    @env[SESSION] = SESSION_SEXP
+    @env[COOKIES] = COOKIES_SEXP
   end
 
   #Check if _exp_ represents a hash: s(:hash, {...})
   #This also includes pseudo hashes params, session, and cookies.
   def hash? exp
-    exp.is_a? Sexp and (exp.node_type == :hash or 
-                        exp.node_type == :params or 
+    exp.is_a? Sexp and (exp.node_type == :hash or
+                        exp.node_type == :params or
                         exp.node_type == :session or
                         exp.node_type == :cookies)
   end
@@ -148,6 +172,12 @@ module Brakeman::Util
                         exp.node_type == :nil)
   end
 
+  #Check if _exp_ represents a block of code
+  def block? exp
+    exp.is_a? Sexp and (exp.node_type == :block or
+                        exp.node_type == :rlist)
+  end
+
   #Check if _exp_ is a params hash
   def params? exp
     if exp.is_a? Sexp
@@ -179,12 +209,62 @@ module Brakeman::Util
     end
 
     false
+  end
 
+  def request_env? exp
+    call? exp and (exp == REQUEST_ENV or exp[1] == REQUEST_ENV)
+  end
+
+  #Check if exp is params, cookies, or request_env
+  def request_value? exp
+    params? exp or
+    cookies? exp or
+    request_env? exp
   end
 
   #Check if _exp_ is a Sexp.
   def sexp? exp
     exp.is_a? Sexp
+  end
+
+  #Check if _exp_ is a Sexp and the node type matches one of the given types.
+  def node_type? exp, *types
+    exp.is_a? Sexp and types.include? exp.node_type
+  end
+
+  #Returns true if the given _exp_ contains a :class node.
+  #
+  #Useful for checking if a module is just a module or if it is a namespace.
+  def contains_class? exp
+    todo = [exp]
+
+    until todo.empty?
+      current = todo.shift
+
+      if node_type? current, :class
+        return true
+      elsif sexp? current
+        todo = current[1..-1].concat todo
+      end
+    end
+
+    false
+  end
+
+  def make_call target, method, *args
+    call = Sexp.new(:call, target, method)
+
+    if args.empty? or args.first.empty?
+      #nothing to do
+    elsif node_type? args.first, :arglist
+      call.concat args.first[1..-1]
+    elsif args.first.node_type.is_a? Sexp #just a list of args
+      call.concat args.first
+    else
+      call.concat args
+    end
+
+    call
   end
 
   #Return file name related to given warning. Uses +warning.file+ if it exists
@@ -195,6 +275,8 @@ module Brakeman::Util
 
     if warning.file
       File.expand_path warning.file, tracker.options[:app_path]
+    elsif warning.template.is_a? Hash and warning.template[:file]
+      warning.template[:file]
     else
       case warning.warning_set
       when :controller
@@ -225,7 +307,7 @@ module Brakeman::Util
     unless type
       if string_name =~ /Controller$/
         type = :controller
-      elsif camelize(string_name) == string_name
+      elsif camelize(string_name) == string_name # This is not always true
         type = :model
       else
         type = :template
@@ -245,7 +327,7 @@ module Brakeman::Util
       if tracker.models[name] and tracker.models[name][:file]
         path = tracker.models[name][:file]
       else
-        path += "/app/controllers/#{underscore(string_name)}.rb"
+        path += "/app/models/#{underscore(string_name)}.rb"
       end
     when :template
       if tracker.templates[name] and tracker.templates[name][:file]
@@ -263,10 +345,10 @@ module Brakeman::Util
 
   #Return array of lines surrounding the warning location from the original
   #file.
-  def context_for warning, tracker = nil
+  def context_for app_tree, warning, tracker = nil
     file = file_for warning, tracker
     context = []
-    return context unless warning.line and file and File.exist? file
+    return context unless warning.line and file and @app_tree.path_exists? file
 
     current_line = 0
     start_line = warning.line - 5
@@ -291,5 +373,41 @@ module Brakeman::Util
     end
 
     context
+  end
+
+  def relative_path file
+    if file and not file.empty? and file.start_with? '/'
+      Pathname.new(file).relative_path_from(Pathname.new(@tracker.options[:app_path])).to_s
+    else
+      file
+    end
+  end
+
+  def truncate_table str
+    @terminal_width ||= if $stdin && $stdin.tty?
+                          Brakeman.load_brakeman_dependency 'highline'
+                          ::HighLine.new.terminal_size[0]
+                        else
+                          80
+                        end
+    lines = str.lines
+
+    lines.map do |line|
+      if line.chomp.length > @terminal_width
+        line[0..(@terminal_width - 3)] + ">>\n"
+      else
+        line
+      end
+    end.join
+  end
+
+  # rely on Terminal::Table to build the structure, extract the data out in CSV format
+  def table_to_csv table
+    Brakeman.load_brakeman_dependency 'terminal-table'
+    output = CSV.generate_line(table.headings.cells.map{|cell| cell.to_s.strip})
+    table.rows.each do |row|
+      output << CSV.generate_line(row.cells.map{|cell| cell.to_s.strip})
+    end
+    output
   end
 end

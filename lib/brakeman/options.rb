@@ -50,8 +50,8 @@ module Brakeman::Options
         opts.separator ""
         opts.separator "Scanning options:"
 
-        opts.on "-a", "--assume-routes", "Assume all controller methods are actions" do
-          options[:assume_all_routes] = true
+        opts.on "-a", "--[no-]assume-routes", "Assume all controller methods are actions (default)" do |assume|
+          options[:assume_all_routes] = assume
         end
 
         opts.on "-e", "--escape-html", "Escape HTML by default" do
@@ -71,8 +71,16 @@ module Brakeman::Options
           options[:ignore_attr_protected] = true
         end
 
+        opts.on "--interprocedural", "Process method calls to known methods" do
+          options[:interprocedural] = true
+        end
+
         opts.on "--no-branching", "Disable flow sensitivity on conditionals" do
           options[:ignore_ifs] = true
+        end
+
+        opts.on "--branch-limit LIMIT", Integer, "Limit depth of values in branches (-1 for no limit)" do |limit|
+          options[:branch_limit] = limit
         end
 
         opts.on "-r", "--report-direct", "Only report direct use of untrusted data" do |option|
@@ -84,9 +92,19 @@ module Brakeman::Options
           options[:safe_methods].merge methods.map {|e| e.to_sym }
         end
 
+        opts.on "--url-safe-methods method1,method2,etc", Array, "Do not warn of XSS if the link_to href parameter is wrapped in a safe method" do |methods|
+          options[:url_safe_methods] ||= Set.new
+          options[:url_safe_methods].merge methods.map {|e| e.to_sym }
+        end
+
         opts.on "--skip-files file1,file2,etc", Array, "Skip processing of these files" do |files|
           options[:skip_files] ||= Set.new
-          options[:skip_files].merge files.map {|f| f.to_sym }
+          options[:skip_files].merge files
+        end
+
+        opts.on "--only-files file1,file2,etc", Array, "Process only these files" do |files|
+          options[:only_files] ||= Set.new
+          options[:only_files].merge files
         end
 
         opts.on "--skip-libs", "Skip processing lib directory" do
@@ -119,13 +137,13 @@ module Brakeman::Options
         opts.separator "Output options:"
 
         opts.on "-d", "--debug", "Lots of output" do
-          options[:debug] = true 
+          options[:debug] = true
         end
 
-        opts.on "-f", 
-          "--format TYPE", 
-          [:pdf, :text, :html, :csv, :tabs], 
-          "Specify output format. Default is text" do |type|
+        opts.on "-f",
+          "--format TYPE",
+          [:pdf, :text, :html, :csv, :tabs, :json],
+          "Specify output formats. Default is text" do |type|
 
           type = "s" if type == :text
           options[:output_format] = ("to_" << type.to_s).to_sym
@@ -135,8 +153,20 @@ module Brakeman::Options
           options[:html_style] = File.expand_path file
         end
 
+        opts.on "-i IGNOREFILE", "--ignore-config IGNOREFILE", "Use configuration to ignore warnings" do |file|
+          options[:ignore_file] = file
+        end
+
+        opts.on "-I", "--interactive-ignore", "Interactively ignore warnings" do
+          options[:interactive_ignore] = true 
+        end
+
         opts.on "-l", "--[no-]combine-locations", "Combine warning locations (Default)" do |combine|
           options[:combine_locations] = combine
+        end
+
+        opts.on "--[no-]highlights", "Highlight user input in report" do |highlight|
+          options[:highlight_user_input] = highlight
         end
 
         opts.on "-m", "--routes", "Report controller information" do
@@ -147,8 +177,9 @@ module Brakeman::Options
           options[:message_limit] = limit.to_i
         end
 
-        opts.on "-o", "--output FILE", "Specify file for output. Defaults to stdout" do |file|
-          options[:output_file] = file
+        opts.on "-o", "--output FILE", "Specify files for output. Defaults to stdout. Multiple '-o's allowed" do |file|
+          options[:output_files] ||= []
+          options[:output_files].push(file)
         end
 
         opts.on "--separate-models", "Warn on each model without attr_accessible" do
@@ -159,12 +190,20 @@ module Brakeman::Options
           options[:summary_only] = true
         end
 
-        opts.on "-w", 
-          "--confidence-level LEVEL", 
-          ["1", "2", "3"], 
+        opts.on "--absolute-paths", "Output absolute file paths in reports" do
+          options[:absolute_paths] = true
+        end
+
+        opts.on "-w",
+          "--confidence-level LEVEL",
+          ["1", "2", "3"],
           "Set minimal confidence level (1 - 3)" do |level|
 
           options[:min_confidence] =  3 - level.to_i
+        end
+
+        opts.on "--compare FILE", "Compare the results of a previous brakeman scan (only JSON is supported)" do |file|
+          options[:previous_results_json] = File.expand_path(file)
         end
 
         opts.separator ""
@@ -212,6 +251,10 @@ module Brakeman::Options
         parser.parse! args
       else
         parser.parse args
+      end
+
+      if options[:previous_results_json] and options[:output_files]
+        options[:comparison_output_file] = options[:output_files].shift
       end
 
       return options, parser

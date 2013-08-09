@@ -9,7 +9,8 @@ require 'brakeman/processors/lib/find_all_calls'
 class Brakeman::Tracker
   attr_accessor :controllers, :templates, :models, :errors,
     :checks, :initializers, :config, :routes, :processor, :libs,
-    :template_cache, :options, :filter_cache
+    :template_cache, :options, :filter_cache, :start_time, :end_time,
+    :duration, :ignored_filter
 
   #Place holder when there should be a model, but it is not
   #clear what model it will be.
@@ -19,10 +20,12 @@ class Brakeman::Tracker
   #
   #The Processor argument is only used by other Processors
   #that might need to access it.
-  def initialize processor = nil, options = {}
+  def initialize(app_tree, processor = nil, options = {})
+    @app_tree = app_tree
     @processor = processor
     @options = options
-    @config = {}
+
+    @config = { :rails => {} }
     @templates = {}
     @controllers = {}
     #Initialize models with the unknown model so
@@ -44,6 +47,9 @@ class Brakeman::Tracker
     @template_cache = Set.new
     @filter_cache = {}
     @call_index = nil
+    @start_time = Time.now
+    @end_time = nil
+    @duration = nil
   end
 
   #Add an error to the list. If no backtrace is given,
@@ -54,13 +60,20 @@ class Brakeman::Tracker
       backtrace = [ backtrace ]
     end
 
+    Brakeman.debug exception
+    Brakeman.debug backtrace
+
     @errors << { :error => exception.to_s.gsub("\n", " "), :backtrace => backtrace }
   end
 
   #Run a set of checks on the current information. Results will be stored
   #in Tracker#checks.
   def run_checks
-    @checks = Brakeman::Checks.run_checks(self)
+    @checks = Brakeman::Checks.run_checks(@app_tree, self)
+
+    @end_time = Time.now
+    @duration = @end_time - @start_time
+    @checks
   end
 
   #Iterate over all methods in controllers and models.
@@ -73,7 +86,7 @@ class Brakeman::Tracker
               method_name = "#{definition[1]}.#{method_name}"
             end
 
-            yield definition, set_name, method_name
+            yield definition, set_name, method_name, info[:file]
 
           end
         end
@@ -81,11 +94,11 @@ class Brakeman::Tracker
     end
   end
 
-  #Iterates over each template, yielding the name and the template. 
+  #Iterates over each template, yielding the name and the template.
   #Prioritizes templates which have been rendered.
   def each_template
     if @processed.nil?
-      @processed, @rest = templates.keys.partition { |k| k.to_s.include? "." }
+      @processed, @rest = templates.keys.sort_by{|template| template.to_s}.partition { |k| k.to_s.include? "." }
     end
 
     @processed.each do |k|
@@ -127,7 +140,7 @@ class Brakeman::Tracker
   def check_initializers target, method
     finder = Brakeman::FindCall.new target, method, self
 
-    initializers.each do |name, initializer|
+    initializers.sort.each do |name, initializer|
       finder.process_source initializer
     end
 
@@ -136,19 +149,23 @@ class Brakeman::Tracker
 
   #Returns a Report with this Tracker's information
   def report
-    Brakeman::Report.new(self)
+    Brakeman::Report.new(@app_tree, self)
+  end
+
+  def warnings
+    self.checks.all_warnings
   end
 
   def index_call_sites
     Brakeman.benchmark :index_call_sites do
       finder = Brakeman::FindAllCalls.new self
 
-      self.each_method do |definition, set_name, method_name|
-        finder.process_source definition, set_name, method_name
+      self.each_method do |definition, set_name, method_name, file|
+        finder.process_source definition, :class => set_name, :method => method_name, :file => file
       end
 
       self.each_template do |name, template|
-        finder.process_source template[:src], nil, nil, template
+        finder.process_source template[:src], :template => template, :file => template[:file]
       end
 
       @call_index = Brakeman::CallIndex.new finder.calls
@@ -197,7 +214,7 @@ class Brakeman::Tracker
               method_name = "#{definition[1]}.#{method_name}"
             end
 
-            finder.process_source definition, set_name, method_name
+            finder.process_source definition, :class => set_name, :method => method_name, :file => info[:file]
 
           end
         end
@@ -206,7 +223,7 @@ class Brakeman::Tracker
 
     if locations.include? :templates
       self.each_template do |name, template|
-        finder.process_source template[:src], nil, nil, template
+        finder.process_source template[:src], :template => template, :file => template[:file]
       end
     end
 
@@ -235,6 +252,7 @@ class Brakeman::Tracker
     @templates.delete name
     @processed = nil
     @rest = nil
+    @template_cache.clear
   end
 
   #Clear information related to model
@@ -249,6 +267,28 @@ class Brakeman::Tracker
     end
 
     @models.delete model_name
+  end
+
+  def reset_controller path
+    #Remove from controller
+    @controllers.delete_if do |name, controller|
+      if controller[:file] == path
+        template_matcher = /^#{name}#/
+
+        #Remove templates rendered from this controller
+        @templates.each do |template_name, template|
+          if template[:caller] and not template[:caller].grep(template_matcher).empty?
+            reset_template template_name
+            @call_index.remove_template_indexes template_name
+          end
+        end
+
+        #Remove calls indexed from this controller
+        @call_index.remove_indexes_by_class [name]
+
+        true
+      end
+    end
   end
 
   #Clear information about routes

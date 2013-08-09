@@ -18,13 +18,15 @@ class Brakeman::CheckEvaluation < Brakeman::BaseCheck
     end
   end
 
-  #Warns if result includes user input
+  #Warns if eval includes user input
   def process_result result
-    if include_user_input? result[:call]
+    if input = include_user_input?(result[:call].arglist)
       warn :result => result,
         :warning_type => "Dangerous Eval",
+        :warning_code => :code_eval,
         :message => "User input in eval",
         :code => result[:call],
+        :user_input => input.match,
         :confidence => CONFIDENCE[:high]
     end
   end

@@ -1,4 +1,17 @@
 ActionController::Routing::Routes.draw do |map|
+  #Default routes are set for everything,
+  #so these routes are testing for specific problems
+  map.with_options :controller => 'other', :action => 'nothing' do |r|
+    r.connect 'blah'
+  end
+
+  map.connect 'something', :controller => "something#{dynamic}"
+
+  map.resource :users
+
+  map.resources :stuff do |r|; end
+
+  namespace :without_block_arg do;end
   # The priority is based upon order of creation: first created -> highest priority.
 
   # Sample of regular route:
@@ -40,4 +53,7 @@ ActionController::Routing::Routes.draw do |map|
   # consider removing or commenting them out if you're using named routes and resources.
   map.connect ':controller/:action/:id'
   map.connect ':controller/:action/:id.:format'
+  map.some_routes
+
+  map.things "/things", :controller => "home", :action => "index_#{random_dynamic_thing}" 
 end

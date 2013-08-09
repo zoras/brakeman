@@ -3,27 +3,35 @@ require 'brakeman/processors/template_processor'
 #Processes ERB templates using Erubis instead of erb.
 class Brakeman::ErubisTemplateProcessor < Brakeman::TemplateProcessor
   
-  #s(:call, TARGET, :method, s(:arglist))
+  #s(:call, TARGET, :method, ARGS)
   def process_call exp
-    target = exp[1]
+    target = exp.target
     if sexp? target
       target = process target
     end
-    method = exp[2]
+    method = exp.method
 
     #_buf is the default output variable for Erubis
-    if target and (target[1] == :_buf or target[1] == :output_buffer)
+    if node_type?(target, :lvar, :ivar) and (target.value == :_buf or target.value == :@output_buffer)
       if method == :<< or method == :safe_concat
-        args = exp[3][1] = process(exp[3][1])
+        exp.arglist = process exp.arglist
 
-        if args.node_type == :call and args[2] == :to_s #just calling to_s on inner code 
-          args = args[1]
+        arg = exp.first_arg
+
+        #We want the actual content
+        if arg.node_type == :call and (arg.method == :to_s or arg.method == :html_safe!)
+          arg = arg.target
         end
 
-        if args.node_type == :str #ignore plain strings
+        if arg.node_type == :str #ignore plain strings
           ignore
+        elsif node_type? target, :ivar and target.value == :@output_buffer
+          s = Sexp.new :escaped_output, arg
+          s.line(exp.line)
+          @current_template[:outputs] << s
+          s
         else
-          s = Sexp.new :output, args
+          s = Sexp.new :output, arg
           s.line(exp.line)
           @current_template[:outputs] << s
           s
@@ -31,14 +39,15 @@ class Brakeman::ErubisTemplateProcessor < Brakeman::TemplateProcessor
       elsif method == :to_s
         ignore
       else
-        abort "Unrecognized action on _buf: #{method}"
+        abort "Unrecognized action on buffer: #{method}"
       end
     elsif target == nil and method == :render
-      exp[3] = process exp[3]
-      make_render exp
+      exp.arglist = process exp.arglist
+      make_render_in_view exp
     else
-      args = exp[3] = process(exp[3])
-      call = Sexp.new :call, target, method, args
+      #TODO: Is it really necessary to create a new Sexp here?
+      call = make_call target, method, process_all!(exp.args)
+      call.original_line = exp.original_line
       call.line(exp.line)
       call
     end
@@ -46,6 +55,7 @@ class Brakeman::ErubisTemplateProcessor < Brakeman::TemplateProcessor
 
   #Process blocks, ignoring :ignore exps
   def process_block exp
+    exp = exp.dup
     exp.shift
     exp.map! do |e|
       res = process e
@@ -64,14 +74,14 @@ class Brakeman::ErubisTemplateProcessor < Brakeman::TemplateProcessor
   #  @output_buffer.append = some_output
   #  @output_buffer.safe_append = some_output
   def process_attrasgn exp
-    if exp[1].node_type == :ivar and exp[1][1] == :@output_buffer
-      if exp[2] == :append= or exp[2] == :safe_append=
-        args = exp[3][1] = process(exp[3][1])
+    if exp.target.node_type == :ivar and exp.target.value == :@output_buffer
+      if exp.method == :append= or exp.method == :safe_append=
+        arg = exp.first_arg = process(exp.first_arg)
 
-        if args.node_type == :str
+        if arg.node_type == :str
           ignore
         else
-          s = Sexp.new :escaped_output, args
+          s = Sexp.new :escaped_output, arg
           s.line(exp.line)
           @current_template[:outputs] << s
           s

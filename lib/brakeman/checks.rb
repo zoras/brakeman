@@ -1,5 +1,5 @@
 require 'thread'
-require 'brakeman/util'
+require 'brakeman/differ'
 
 #Collects up results from running different checks.
 #
@@ -23,7 +23,13 @@ class Brakeman::Checks
   end
 
   #No need to use this directly.
-  def initialize
+  def initialize options = { }
+    if options[:min_confidence]
+      @min_confidence = options[:min_confidence]
+    else
+      @min_confidence = Brakeman.get_defaults[:min_confidence]
+    end
+
     @warnings = []
     @template_warnings = []
     @model_warnings = []
@@ -34,18 +40,22 @@ class Brakeman::Checks
   #Add Warning to list of warnings to report.
   #Warnings are split into four different arrays
   #for template, controller, model, and generic warnings.
+  #
+  #Will not add warnings which are below the minimum confidence level.
   def add_warning warning
-    case warning.warning_set
-    when :template
-      @template_warnings << warning
-    when :warning
-      @warnings << warning
-    when :controller
-      @controller_warnings << warning
-    when :model
-      @model_warnings << warning
-    else
-      raise "Unknown warning: #{warning.warning_set}"
+    unless warning.confidence > @min_confidence
+      case warning.warning_set
+      when :template
+        @template_warnings << warning
+      when :warning
+        @warnings << warning
+      when :controller
+        @controller_warnings << warning
+      when :model
+        @model_warnings << warning
+      else
+        raise "Unknown warning: #{warning.warning_set}"
+      end
     end
   end
 
@@ -57,13 +67,7 @@ class Brakeman::Checks
   def diff other_checks
     my_warnings = self.all_warnings
     other_warnings = other_checks.all_warnings
-
-    diff = {}
-
-    diff[:fixed] = other_warnings - my_warnings
-    diff[:new] = my_warnings - other_warnings
-
-    diff
+    Brakeman::Differ.new(my_warnings, other_warnings).diff
   end
 
   #Return an array of all warnings found.
@@ -73,33 +77,37 @@ class Brakeman::Checks
 
   #Run all the checks on the given Tracker.
   #Returns a new instance of Checks with the results.
-  def self.run_checks tracker
+  def self.run_checks(app_tree, tracker)
     Brakeman.benchmark :all_checks do
       if tracker.options[:parallel_checks]
-        self.run_checks_parallel tracker
+        self.run_checks_parallel(app_tree, tracker)
       else
-        self.run_checks_sequential tracker
+        self.run_checks_sequential(app_tree, tracker)
       end
     end
   end
 
   #Run checks sequentially
-  def self.run_checks_sequential tracker
-    check_runner = self.new
+  def self.run_checks_sequential(app_tree, tracker)
+    check_runner = self.new :min_confidence => tracker.options[:min_confidence]
 
     @checks.each do |c|
       check_name = get_check_name c
 
       #Run or don't run check based on options
-      unless tracker.options[:skip_checks].include? check_name or 
+      unless tracker.options[:skip_checks].include? check_name or
         (tracker.options[:run_checks] and not tracker.options[:run_checks].include? check_name)
 
         Brakeman.notify " - #{check_name}"
 
-        check = c.new(tracker)
+        check = c.new(app_tree, tracker)
 
-        Brakeman.benchmark underscore(check_name).to_sym do
-          check.run_check
+        begin
+          Brakeman.benchmark underscore(check_name).to_sym do
+            check.run_check
+          end
+        rescue Exception => e
+          tracker.error e
         end
 
         check.warnings.each do |w|
@@ -116,31 +124,35 @@ class Brakeman::Checks
   end
 
   #Run checks in parallel threads
-  def self.run_checks_parallel tracker
+  def self.run_checks_parallel(app_tree, tracker)
     threads = []
-    
-    check_runner = self.new
+    error_mutex = Mutex.new
+
+    check_runner = self.new :min_confidence => tracker.options[:min_confidence]
 
     @checks.each do |c|
       check_name = get_check_name c
 
       #Run or don't run check based on options
-      unless tracker.options[:skip_checks].include? check_name or 
+      unless tracker.options[:skip_checks].include? check_name or
         (tracker.options[:run_checks] and not tracker.options[:run_checks].include? check_name)
 
         Brakeman.notify " - #{check_name}"
 
         threads << Thread.new do
+          check = c.new(app_tree, tracker)
+
           begin
-            check = c.new(tracker)
             Brakeman.benchmark underscore(check_name).to_sym do
               check.run_check
             end
-            check.warnings
           rescue Exception => e
-            Brakeman.notify "[#{check_name}] #{e}"
-            []
+            error_mutex.synchronize do
+              tracker.error e
+            end
           end
+
+          check.warnings
         end
 
         #Maintain list of which checks were run
@@ -171,6 +183,6 @@ class Brakeman::Checks
 end
 
 #Load all files in checks/ directory
-Dir.glob("#{File.expand_path(File.dirname(__FILE__))}/checks/*.rb").sort.each do |f| 
+Dir.glob("#{File.expand_path(File.dirname(__FILE__))}/checks/*.rb").sort.each do |f|
   require f.match(/(brakeman\/checks\/.*)\.rb$/)[0]
 end
