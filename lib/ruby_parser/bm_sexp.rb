@@ -2,6 +2,22 @@
 #and some changes for caching hash value and tracking 'original' line number
 #of a Sexp.
 class Sexp
+  def self.count
+    @count ||= Hash.new(0)
+    @count[caller[2]] += 1
+  end
+
+  def self.results
+    require 'pp'
+    puts "Total: #{@count.reduce(0) {|m,v| v[1] + m }}"
+    pp @count.sort_by { |k,v| v }.last(10).reverse
+  end
+
+  def initialize(*args)
+    self.class.count
+    super(args)
+  end
+
   attr_reader :paren
   attr_accessor :original_line, :or_depth
   ASSIGNMENT_BOOL = [:gasgn, :iasgn, :lasgn, :cvdecl, :cdecl, :or, :and, :colon2]
