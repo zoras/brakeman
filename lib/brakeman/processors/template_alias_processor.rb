@@ -57,16 +57,16 @@ class Brakeman::TemplateAliasProcessor < Brakeman::AliasProcessor
       if method == :each and arg and block and model = get_model_target(target)
         if arg.is_a? Symbol
           if model == target.target
-            env[Sexp.new(:lvar, arg)] = Sexp.new(:call, model, :new)
+            env[arg] = Sexp.new(:call, model, :new)
           else
-            env[Sexp.new(:lvar, arg)] = UNKNOWN_MODEL_CALL
+            env[arg] = UNKNOWN_MODEL_CALL
           end
 
           process block if sexp? block
         end
       elsif FORM_METHODS.include? method
         if arg.is_a? Symbol
-          env[Sexp.new(:lvar, arg)] = FORM_BUILDER_CALL
+          env[arg] = FORM_BUILDER_CALL
 
           process block if sexp? block
         end
