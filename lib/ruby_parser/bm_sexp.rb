@@ -4,7 +4,11 @@
 class Sexp
   def self.count
     @count ||= Hash.new(0)
-    @count[caller[2]] += 1
+    if caller[2] == "/Users/collins/.rvm/gems/ruby-1.9.3-p484@brakeman/gems/ruby_parser-3.2.2/lib/ruby_parser_extras.rb:1095:in `s'"
+      @count[caller[3]] += 1
+    else
+      @count[caller[2]] += 1
+    end
   end
 
   def self.results
