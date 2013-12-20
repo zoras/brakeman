@@ -63,7 +63,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     end
 
     #Generic replace
-    if replacement = env[exp] and not duplicate? replacement
+    if replacement = replacement?(exp) and not duplicate? replacement
       result = replacement.deep_clone(exp.line)
     else
       result = exp
@@ -72,6 +72,15 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     @exp_context.pop
 
     result
+  end
+
+  def replacement? exp
+    case exp.node_type
+    when :lvar, :ivar
+      env[exp.value]
+    else
+      env[exp]
+    end
   end
 
   #Process a method call.
@@ -147,7 +156,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     when :merge!, :update
       if hash? target and hash? first_arg
          target = process_hash_merge! target, first_arg
-         env[target_var] = target
+         set_value target_var, target
          return target
       end
     when :merge
@@ -157,15 +166,15 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     when :<<
       if string? target and string? first_arg
         target.value << first_arg.value
-        env[target_var] = target
+        set_value target_var, target
         return target
       elsif array? target
         target << first_arg
-        env[target_var] = target
+        set_value target_var, target
         return target
       else
         target = find_push_target exp
-        env[target] = exp unless target.nil? #Happens in TemplateAliasProcessor
+        set_value target, exp unless target.nil? #Happens in TemplateAliasProcessor
       end
     end
 
@@ -179,15 +188,15 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
       exp.block_args.each do |e|
         #Force block arg(s) to be local
         if node_type? e, :lasgn
-          env.current[Sexp.new(:lvar, e.lhs)] = e.rhs
+          env.current[e.lhs] = e.rhs
         elsif node_type? e, :masgn
           e[1..-1].each do |var|
             local = Sexp.new(:lvar, var)
-            env.current[local] = local
+            env.current[var] = local
           end
         elsif e.is_a? Symbol
           local = Sexp.new(:lvar, e)
-          env.current[local] = local
+          env.current[e] = local
         else
           raise "Unexpected value in block args: #{e.inspect}"
         end
@@ -260,9 +269,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     exp.rhs = process exp.rhs if sexp? exp.rhs
     return exp if exp.rhs.nil?
 
-    local = Sexp.new(:lvar, exp.lhs).line(exp.line || -2)
-
-    set_value local, exp.rhs
+    set_value exp.lhs, exp.rhs
 
     exp
   end
@@ -271,9 +278,8 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
   # @x = 1
   def process_iasgn exp
     exp.rhs = process exp.rhs
-    ivar = Sexp.new(:ivar, exp.lhs).line(exp.line)
 
-    set_value ivar, exp.rhs
+    set_value exp.lhs, exp.rhs
 
     exp
   end
@@ -319,8 +325,13 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
 
       set_value match, value
 
+      # Override hash entirely to include new value
       if hash? target
-        env[tar_variable] = hash_insert target.deep_clone, index, value
+        if node_type? tar_variable, :ivar, :lvar
+          tar_variable = tar_variable.value
+        end
+
+        env[tar_variable] = hash_insert(target.deep_clone, index, value)
       end
     elsif method.to_s[-1,1] == "="
       value = exp.first_arg = process(index_arg)
@@ -492,7 +503,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
             # Give up branching, start over with latest value
             env[k] = v
           else
-            env[k] = current_val.combine(v, k.line)
+            env[k] = current_val.combine(v, v.line)
           end
         end
       else
@@ -567,14 +578,14 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     if include_request_vars
       lenv.all.each do |k, v|
         #TODO Why would this have nil values?
-        if (k.node_type == :ivar or request_value? k) and not v.nil?
+        if (ivar? k or request_value? k) and not v.nil?
           res[k] = v.dup
         end
       end
     else
       lenv.all.each do |k, v|
         #TODO Why would this have nil values?
-        if k.node_type == :ivar and not v.nil?
+        if ivar? k and not v.nil?
           res[k] = v.dup
         end
       end
@@ -687,7 +698,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
       next if index == 0
 
       if arg.is_a? Symbol and sexp? args[index - 1]
-        meth_env[Sexp.new(:lvar, arg)] = args[index - 1]
+        meth_env[arg] = args[index - 1]
       end
     end
 
@@ -758,8 +769,12 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
       value = value_from_if(value)
     end
 
+    if node_type? var, :ivar, :lvar
+      var = var.value
+    end
+
     if @ignore_ifs or not @inside_if
-      if @meth_env and node_type? var, :ivar and env[var].nil?
+      if @meth_env and ivar? var and env[var].nil?
         @meth_env[var] = value
       else
         env[var] = value
@@ -768,7 +783,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
       env.current[var] = value
     elsif @branch_env and @branch_env[var]
       @branch_env[var] = value
-    elsif @branch_env and @meth_env and node_type? var, :ivar
+    elsif @branch_env and @meth_env and ivar? var 
       @branch_env[var] = value
     else
       env.current[var] = value
@@ -813,5 +828,9 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
     else
       false
     end
+  end
+
+  def ivar? var
+    var.is_a? Symbol and var[0] == "@"
   end
 end

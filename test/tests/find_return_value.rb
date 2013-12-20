@@ -68,7 +68,7 @@ class FindReturnValueTests < Test::Unit::TestCase
 
   def test_parameters
     env = SexpProcessor::Environment.new
-    env[s(:lvar, :y)] = s(:lit, 1)
+    env[:y] = s(:lit, 1)
 
     assert_returns '2', <<-RUBY, env
       def x y
@@ -80,7 +80,7 @@ class FindReturnValueTests < Test::Unit::TestCase
 
   def test_assign_as_implicit_return
     env = SexpProcessor::Environment.new
-    env[s(:lvar, :y)] = s(:lit, 1)
+    env[:y] = s(:lit, 1)
 
     assert_returns '2', <<-RUBY, env
       def x y
@@ -91,7 +91,7 @@ class FindReturnValueTests < Test::Unit::TestCase
 
   def test_iassgn_as_implicit_return
     env = SexpProcessor::Environment.new
-    env[Sexp.new(:ivar, :@y)] = Sexp.new(:lit, 2)
+    env[:@y] = Sexp.new(:lit, 2)
 
     assert_returns '1', <<-RUBY, env
       def x
@@ -99,7 +99,7 @@ class FindReturnValueTests < Test::Unit::TestCase
       end
     RUBY
 
-    assert_equal env[Sexp.new(:ivar, :@y)], Sexp.new(:lit, 1)
+    assert_equal env[:@y], Sexp.new(:lit, 1)
   end
 
   def test_local_aliasing
@@ -118,7 +118,7 @@ class FindReturnValueTests < Test::Unit::TestCase
 
   def test_ivar_aliasing
     env = SexpProcessor::Environment.new
-    env[s(:ivar, :@y)] = s(:lit, 1)
+    env[:@y] = s(:lit, 1)
 
     assert_returns "'a'", <<-RUBY, env
       def x

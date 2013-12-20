@@ -135,7 +135,7 @@ class Brakeman::ConfigAliasProcessor < Brakeman::AliasProcessor
     method = exp.block_call.method
 
     if sexp? target and target == RAILS_INIT and method == :run
-      env[Sexp.new(:lvar, exp.block_args.value)] = Brakeman::Rails2ConfigProcessor::RAILS_CONFIG
+      env[exp.block_args.value] = Brakeman::Rails2ConfigProcessor::RAILS_CONFIG
     end
 
     process_default exp
