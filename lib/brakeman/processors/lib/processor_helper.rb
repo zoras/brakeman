@@ -29,6 +29,20 @@ module Brakeman::ProcessorHelper
 
     exp
   end
+
+  #Process and replace the arguments of a method call.
+  #
+  #This method is used because Sexp#args and Sexp#arglist create new objects.
+  def process_call_args! exp
+    exp.each_arg(true) do |a|
+      if sexp? a
+        process a
+      else
+        a
+      end
+    end
+  end
+
   #Sets the current module.
   def process_module exp
     module_name = class_name(exp.class_name).to_s
