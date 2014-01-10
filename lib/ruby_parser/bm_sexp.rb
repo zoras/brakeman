@@ -14,13 +14,15 @@ class Sexp
   def self.results
     require 'pp'
     puts "Total: #{@count.reduce(0) {|m,v| v[1] + m }}"
-    pp @count.sort_by { |k,v| v }.last(10).reverse
+    pp @count.sort_by { |k,v| v }.last(15).reverse
   end
 
+=begin
   def initialize(*args)
     self.class.count
     super(args)
   end
+=end
 
   attr_reader :paren
   attr_accessor :original_line, :or_depth
