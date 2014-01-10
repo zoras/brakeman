@@ -7,7 +7,7 @@ class Sexp
     if caller[2] == "/Users/collins/.rvm/gems/ruby-1.9.3-p484@brakeman/gems/ruby_parser-3.2.2/lib/ruby_parser_extras.rb:1095:in `s'"
       @count[caller[3]] += 1
     else
-      @count[caller[2]] += 1
+      @count[caller[1]] += 1
     end
   end
 
@@ -15,6 +15,11 @@ class Sexp
     require 'pp'
     puts "Total: #{@count.reduce(0) {|m,v| v[1] + m }}"
     pp @count.sort_by { |k,v| v }.last(15).reverse
+  end
+
+  def dup
+    self.class.count
+    super
   end
 
 =begin
