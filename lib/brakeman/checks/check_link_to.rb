@@ -115,18 +115,4 @@ class Brakeman::CheckLinkTo < Brakeman::CheckCrossSiteScripting
     actually_process_call exp
     exp
   end
-
-  def actually_process_call exp
-    return if @matched
-
-    target = exp.target
-    target = process target.dup if sexp? target
-
-    #Bare records create links to the model resource,
-    #not a string that could have injection
-    #TODO: Needs test? I think this is broken?
-    return exp if model_name? target and context == [:call, :arglist]
-
-    super
-  end
 end
