@@ -14,8 +14,7 @@ class Brakeman::ErubisTemplateProcessor < Brakeman::TemplateProcessor
     #_buf is the default output variable for Erubis
     if node_type?(target, :lvar, :ivar) and (target.value == :_buf or target.value == :@output_buffer)
       if method == :<< or method == :safe_concat
-        exp.arglist = process exp.arglist
-
+        process_call_args! exp
         arg = exp.first_arg
 
         #We want the actual content
@@ -42,7 +41,7 @@ class Brakeman::ErubisTemplateProcessor < Brakeman::TemplateProcessor
         abort "Unrecognized action on buffer: #{method}"
       end
     elsif target == nil and method == :render
-      exp.arglist = process exp.arglist
+      process_call_args! exp
       make_render_in_view exp
     else
       exp.target = target
