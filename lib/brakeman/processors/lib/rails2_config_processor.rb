@@ -1,3 +1,5 @@
+require 'brakeman/processors/lib/basic_processor'
+
 #Processes configuration. Results are put in tracker.config.
 #
 #Configuration of Rails via Rails::Initializer are stored in tracker.config[:rails].
@@ -12,7 +14,7 @@
 #  tracker.config[:rails][:action_controller][:session_store]
 #
 #Values for tracker.config[:rails] will still be Sexps.
-class Brakeman::Rails2ConfigProcessor < Brakeman::BaseProcessor
+class Brakeman::Rails2ConfigProcessor < Brakeman::BasicProcessor
   #Replace block variable in
   #
   #  Rails::Initializer.run |config|
@@ -20,7 +22,7 @@ class Brakeman::Rails2ConfigProcessor < Brakeman::BaseProcessor
   #with this value so we can keep track of it.
   RAILS_CONFIG = Sexp.new(:const, :"!BRAKEMAN_RAILS_CONFIG")
 
-  def initialize *args
+  def initialize tracker
     super
     @tracker.config[:rails] ||= {}
   end

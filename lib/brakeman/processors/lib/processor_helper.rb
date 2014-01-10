@@ -7,6 +7,8 @@ module Brakeman::ProcessorHelper
     exp
   end
 
+  alias process_default process_all
+
   def process_all! exp
     exp.map! do |e|
       if sexp? e
@@ -62,6 +64,15 @@ module Brakeman::ProcessorHelper
 
     @current_module = prev_module
 
+    exp
+  end
+
+  #Sets the curent class
+  def process_class exp
+    current_class = @current_class
+    @current_class = class_name exp[1]
+    process_all exp.body
+    @current_class = current_class
     exp
   end
 

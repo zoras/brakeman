@@ -1,4 +1,4 @@
-require 'brakeman/processors/base_processor'
+require 'brakeman/processors/lib/basic_processor'
 
 #Finds method calls matching the given target(s).
 #   #-- This should be deprecated --#
@@ -31,15 +31,13 @@ require 'brakeman/processors/base_processor'
 #
 # #Find all calls to sub, sub!, gsub, or gsub!
 # FindCall.new nil, /^g?sub!?$/
-class Brakeman::FindCall < Brakeman::BaseProcessor
+class Brakeman::FindCall < Brakeman::BasicProcessor
 
   def initialize targets, methods, tracker, in_depth = false
     super tracker
     @calls = []
     @find_targets = targets
     @find_methods = methods
-    @current_class = nil
-    @current_method = nil
     @in_depth = in_depth
   end
 

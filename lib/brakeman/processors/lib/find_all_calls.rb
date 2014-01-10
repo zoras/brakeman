@@ -1,12 +1,10 @@
-require 'brakeman/processors/base_processor'
+require 'brakeman/processors/lib/basic_processor'
 
-class Brakeman::FindAllCalls < Brakeman::BaseProcessor
+class Brakeman::FindAllCalls < Brakeman::BasicProcessor
   attr_reader :calls
 
   def initialize tracker
     super
-    @current_class = nil
-    @current_method = nil
     @in_target = false
     @calls = []
   end
