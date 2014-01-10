@@ -73,8 +73,7 @@ class Brakeman::HamlTemplateProcessor < Brakeman::TemplateProcessor
         s
       end
     elsif target == nil and method == :render
-      #Process call to render()
-      exp.arglist = process exp.arglist
+      process_call_args! exp
       make_render_in_view exp
     else
       exp.target = target

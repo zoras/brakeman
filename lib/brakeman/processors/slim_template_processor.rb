@@ -35,7 +35,7 @@ class Brakeman::SlimTemplateProcessor < Brakeman::TemplateProcessor
     elsif is_escaped? exp
       make_escaped_output exp.first_arg
     elsif target == nil and method == :render
-      exp.arglist = process exp.arglist
+      process_call_args!
       make_render_in_view exp
     else
       process_call_args! exp

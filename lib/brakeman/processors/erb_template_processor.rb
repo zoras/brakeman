@@ -16,7 +16,7 @@ class Brakeman::ErbTemplateProcessor < Brakeman::TemplateProcessor
     if node_type? target, :lvar and target.value == :_erbout
       if method == :concat
         @inside_concat = true
-        exp.arglist = process(exp.arglist)
+        process_call_args! exp
         @inside_concat = false
 
         if exp.second_arg
@@ -43,7 +43,7 @@ class Brakeman::ErbTemplateProcessor < Brakeman::TemplateProcessor
         abort "Unrecognized action on _erbout: #{method}"
       end
     elsif target == nil and method == :render
-      exp.arglist = process(exp.arglist)
+      process_call_args! exp
       make_render_in_view exp
     else
       exp.target = target
