@@ -579,14 +579,14 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
       lenv.all.each do |k, v|
         #TODO Why would this have nil values?
         if (ivar? k or request_value? k) and not v.nil?
-          res[k] = v.dup
+          res[k] = v
         end
       end
     else
       lenv.all.each do |k, v|
         #TODO Why would this have nil values?
         if ivar? k and not v.nil?
-          res[k] = v.dup
+          res[k] = v
         end
       end
     end
@@ -599,7 +599,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
 
     env.all.each do |k, v|
       if request_value? k and not v.nil?
-        res[k] = v.dup
+        res[k] = v
       end
     end
 
