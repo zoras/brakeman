@@ -91,7 +91,7 @@ class Brakeman::ControllerAliasProcessor < Brakeman::AliasProcessor
         end
       end
 
-      process_all exp.body
+      process_all_body exp
 
       if is_route and not @rendered
         process_default_render exp

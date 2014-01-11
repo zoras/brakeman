@@ -54,7 +54,7 @@ class Brakeman::ControllerProcessor < Brakeman::BaseProcessor
           @tracker.libs[name.to_sym] = @controller
         end
 
-        process_all exp.body
+        process_all_body exp
       end
 
       @controller = current_controller
@@ -70,7 +70,7 @@ class Brakeman::ControllerProcessor < Brakeman::BaseProcessor
 
     @tracker.controllers[@controller[:name]] = @controller
 
-    exp.body = process_all! exp.body
+    process_all_body! exp
     set_layout_name
 
     @controller = nil
@@ -161,11 +161,11 @@ class Brakeman::ControllerProcessor < Brakeman::BaseProcessor
   def process_defn exp
     name = exp.method_name
     @current_method = name
-    res = Sexp.new :methdef, name, exp.formal_args, *process_all!(exp.body)
-    res.line(exp.line)
+    exp.node_type = :methdef
+    process_all_body! exp
     @current_method = nil
-    @controller[@visibility][name] = res unless @controller.nil?
-    res
+    @controller[@visibility][name] = exp unless @controller.nil?
+    exp
   end
 
   #Process self.method definition and store in Tracker
@@ -185,8 +185,9 @@ class Brakeman::ControllerProcessor < Brakeman::BaseProcessor
     end
 
     @current_method = name
-    res = Sexp.new :selfdef, target, name, exp.formal_args, *process_all!(exp.body)
-    res.line(exp.line)
+    exp[0].node_type = :selfdef
+    exp.target = target
+    process_all_body! exp
     @current_method = nil
     @controller[@visibility][name] = res unless @controller.nil?
 

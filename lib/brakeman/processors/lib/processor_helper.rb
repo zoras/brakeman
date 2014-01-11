@@ -36,11 +36,27 @@ module Brakeman::ProcessorHelper
   #
   #This method is used because Sexp#args and Sexp#arglist create new objects.
   def process_call_args! exp
-    exp.each_arg(true) do |a|
+    exp.each_arg(:replace) do |a|
       if sexp? a
         process a
       else
         a
+      end
+    end
+  end
+
+  def process_all_body exp
+    exp.each_body do |e|
+      process e if sexp? e
+    end
+  end
+
+  def process_all_body! exp
+    exp.each_body(:replace) do |e|
+      if sexp? e
+        process e
+      else
+        e
       end
     end
   end
@@ -59,7 +75,7 @@ module Brakeman::ProcessorHelper
     if block_given?
       yield
     else
-      process_all exp.body
+      process_all_body exp
     end
 
     @current_module = prev_module
@@ -71,7 +87,7 @@ module Brakeman::ProcessorHelper
   def process_class exp
     current_class = @current_class
     @current_class = class_name exp[1]
-    process_all exp.body
+    process_all_body exp
     @current_class = current_class
     exp
   end

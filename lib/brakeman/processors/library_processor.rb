@@ -44,7 +44,7 @@ class Brakeman::LibraryProcessor < Brakeman::BaseProcessor
       @tracker.libs[name] = @current_class
     end
 
-    exp.body = process_all! exp.body
+    process_all_body! exp
 
     if outer_class
       @current_class = outer_class
@@ -81,7 +81,7 @@ class Brakeman::LibraryProcessor < Brakeman::BaseProcessor
       @tracker.libs[name] = @current_module
     end
 
-    exp.body = process_all! exp.body
+    process_all_body! exp
 
     if outer_class
       @current_module = outer_class

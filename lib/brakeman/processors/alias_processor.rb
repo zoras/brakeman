@@ -234,7 +234,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
   #Process a method definition.
   def process_methdef exp
     meth_env do
-      exp.body = process_all! exp.body
+      process_all_body! exp
     end
     exp
   end
@@ -255,7 +255,7 @@ class Brakeman::AliasProcessor < Brakeman::SexpProcessor
   def process_selfdef exp
     env.scope do
       set_env_defaults
-      exp.body = process_all! exp.body
+      process_all_body! exp
     end
     exp
   end
