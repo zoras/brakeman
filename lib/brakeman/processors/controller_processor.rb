@@ -191,13 +191,13 @@ class Brakeman::ControllerProcessor < Brakeman::BaseProcessor
     end
 
     @current_method = name
-    exp[0].node_type = :selfdef
+    exp.node_type = :selfdef
     exp.target = target
     process_all_body! exp
     @current_method = nil
-    @controller[@visibility][name] = res unless @controller.nil?
+    @controller[@visibility][name] = exp unless @controller.nil?
 
-    res
+    exp
   end
 
   #Look for before_filters and add fake ones if necessary
