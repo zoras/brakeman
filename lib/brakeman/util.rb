@@ -236,19 +236,19 @@ module Brakeman::Util
   #
   #Useful for checking if a module is just a module or if it is a namespace.
   def contains_class? exp
-    todo = [exp]
-
-    until todo.empty?
-      current = todo.shift
-
-      if node_type? current, :class
-        return true
-      elsif sexp? current
-        todo = current[1..-1].concat todo
+    if node_type? exp, :class
+      return true
+    elsif sexp? exp
+      exp.each_sexp do |e|
+        if contains_class? e
+          return true
+        end
       end
-    end
 
-    false
+      false
+    else
+      false
+    end
   end
 
   def make_call target, method, *args
