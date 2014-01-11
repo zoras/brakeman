@@ -139,9 +139,9 @@ class Brakeman::ModelProcessor < Brakeman::BaseProcessor
     process_all_body! exp
     @current_method = nil
     if @model
-      @model[@visibility][name] = res unless @model.nil?
+      @model[@visibility][name] = exp unless @model.nil?
     end
-    res
+    exp
   end
 
 end
