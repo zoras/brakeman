@@ -11,6 +11,7 @@ class Sexp
     end
   end
 
+=begin
   def self.results
     require 'pp'
     puts "Total: #{@count.reduce(0) {|m,v| v[1] + m }}"
@@ -22,7 +23,6 @@ class Sexp
     super
   end
 
-=begin
   def initialize(*args)
     self.class.count
     super(args)
