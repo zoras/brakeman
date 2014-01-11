@@ -65,18 +65,6 @@ class Brakeman::FindCall < Brakeman::BasicProcessor
     process exp
   end
 
-  #Process body of method
-  def process_methdef exp
-    process_all exp.body
-  end
-
-  alias :process_selfdef :process_methdef
-
-  #Process body of block
-  def process_rlist exp
-    process_all exp
-  end
-
   #Look for matching calls and add them to results
   def process_call exp
     target = get_target exp.target

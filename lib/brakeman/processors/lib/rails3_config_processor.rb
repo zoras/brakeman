@@ -49,7 +49,7 @@ class Brakeman::Rails3ConfigProcessor < Brakeman::BasicProcessor
   def process_class exp
     if exp.class_name == :Application
       @inside_config = true
-      process_all exp.body if sexp? exp.body
+      process_all_body exp
       @inside_config = false
     end
 

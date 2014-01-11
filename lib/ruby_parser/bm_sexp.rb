@@ -168,7 +168,7 @@ class Sexp
 
   #Sets the target of a method call:
   def target= exp
-    expect :call, :attrasgn
+    expect :call, :attrasgn, :selfdef
     @my_hash_value = nil
     self[1] = exp
   end
@@ -517,6 +517,38 @@ class Sexp
     when :module
       self[2..-1]
     end
+  end
+
+  def each_body replace = false
+    expect :defn, :defs, :methdef, :selfdef, :class, :module
+
+    index = case self.node_type
+    when :defn, :methdef, :class
+      3
+    when :defs, :selfdef
+      4
+    when :module
+      2
+    end
+
+    nils = []
+
+    (index..self.length).each do |i|
+      res = yield self[i]
+      if replace
+        if res.nil?
+          nils << i
+        else
+          self[i] = res
+        end
+      end
+    end
+
+    nils.reverse_each do |n|
+      self.delete_at n
+    end
+
+    self
   end
 
   #Like Sexp#body, except the returned Sexp is of type :rlist
