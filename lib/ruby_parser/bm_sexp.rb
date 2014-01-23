@@ -2,35 +2,6 @@
 #and some changes for caching hash value and tracking 'original' line number
 #of a Sexp.
 class Sexp
-  def self.count
-    @count ||= Hash.new(0)
-    if caller[1] == "/home/justin/.rvm/gems/ruby-2.1.0@brakeman/gems/ruby_parser-3.3.1/lib/ruby_parser_extras.rb:1085:in `new'" or
-      caller[1] == "/home/justin/.rvm/gems/ruby-2.1.0@brakeman/gems/sexp_processor-4.4.1/lib/sexp.rb:333:in `new'"
-
-      @count[caller[3]] += 1
-    else
-      @count[caller[1]] += 1
-    end
-  end
-
-  def self.results
-    require 'pp'
-    puts "Total: #{@count.reduce(0) {|m,v| v[1] + m }}"
-    pp @count.sort_by { |k,v| v }.last(15).reverse
-  end
-
-=begin
-  def dup
-    self.class.count
-    super
-  end
-=end
-
-  def initialize(*args)
-    self.class.count
-    super(args)
-  end
-
   attr_reader :paren
   attr_accessor :original_line, :or_depth
   ASSIGNMENT_BOOL = [:gasgn, :iasgn, :lasgn, :cvdecl, :cdecl, :or, :and, :colon2]
