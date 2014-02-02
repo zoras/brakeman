@@ -13,9 +13,9 @@ class Rails31Tests < Test::Unit::TestCase
   def expected
     @expected ||= {
       :model => 3,
-      :template => 22,
+      :template => 23,
       :controller => 4,
-      :generic => 72 }
+      :generic => 77 }
   end
 
   def test_without_protection
@@ -802,10 +802,46 @@ class Rails31Tests < Test::Unit::TestCase
 
   def test_denial_of_service_CVE_2013_1854
     assert_warning :type => :warning,
+      :warning_code => 55,
+      :fingerprint => "2746b8872d4f46676a8c490a7ac906d23f6b11c9d83b6371ff5895139ec7b43b",
       :warning_type => "Denial of Service",
       :message => /^Rails\ 3\.1\.0\ has\ a\ denial\ of\ service\ vul/,
       :confidence => 1,
       :file => /Gemfile/
+  end
+
+  def test_denial_of_service_CVE_2013_6414
+    assert_warning :type => :warning,
+      :warning_code => 64,
+      :fingerprint => "a7b00f08e4a18c09388ad017876e3f57d18040ead2816a2091f3301b6f0e5a00",
+      :warning_type => "Denial of Service",
+      :message => /^Rails\ 3\.1\.0\ has\ a\ denial\ of\ service\ vuln/,
+      :confidence => 1,
+      :relative_path => "Gemfile"
+  end
+
+  def test_number_to_currency_CVE_2013_6415
+    assert_warning :type => :warning,
+      :warning_code => 65,
+      :fingerprint => "813b00b5c58567fb3f32051578b839cb25fc2d827834a30d4b213a4c126202a2",
+      :warning_type => "Cross Site Scripting",
+      :line => nil,
+      :message => /^Rails\ 3\.1\.0\ has\ a\ vulnerability\ in\ numbe/,
+      :confidence => 1,
+      :relative_path => "Gemfile",
+      :user_input => nil
+  end
+
+  def test_sql_injection_CVE_2013_6417
+    assert_warning :type => :warning,
+      :warning_code => 69,
+      :fingerprint => "e1b66f4311771d714a13be519693c540d7e917511a758827d9b2a0a7f958e40f",
+      :warning_type => "SQL Injection",
+      :line => nil,
+      :message => /^Rails\ 3\.1\.0\ contains\ a\ SQL\ injection\ vul/,
+      :confidence => 0,
+      :relative_path => "Gemfile",
+      :user_input => nil
   end
 
   def test_to_json_with_overwritten_config
@@ -958,7 +994,7 @@ class Rails31Tests < Test::Unit::TestCase
     assert_warning :type => :warning,
       :warning_type => "Remote Code Execution",
       :line => 9,
-      :message => /^Unsafe\ Reflection\ method\ constantize\ cal/,
+      :message => /^Unsafe\ reflection\ method\ constantize\ cal/,
       :confidence => 0,
       :file => /admin_controller\.rb/
   end
@@ -968,7 +1004,7 @@ class Rails31Tests < Test::Unit::TestCase
     assert_warning :type => :warning,
       :warning_type => "Remote Code Execution",
       :line => 12,
-      :message => /^Unsafe\ Reflection\ method\ safe_constantiz/,
+      :message => /^Unsafe\ reflection\ method\ safe_constantiz/,
       :confidence => 0,
       :file => /admin_controller\.rb/
   end
@@ -977,7 +1013,7 @@ class Rails31Tests < Test::Unit::TestCase
     assert_warning :type => :warning,
       :warning_type => "Remote Code Execution",
       :line => 14,
-      :message => /^Unsafe\ Reflection\ method\ qualified_const/,
+      :message => /^Unsafe\ reflection\ method\ qualified_const/,
       :confidence => 0,
       :file => /admin_controller\.rb/
   end
@@ -987,7 +1023,7 @@ class Rails31Tests < Test::Unit::TestCase
     assert_warning :type => :warning,
       :warning_type => "Remote Code Execution",
       :line => 16,
-      :message => /^Unsafe\ Reflection\ method\ const_get\ calle/,
+      :message => /^Unsafe\ reflection\ method\ const_get\ calle/,
       :confidence => 0,
       :file => /admin_controller\.rb/
   end
@@ -996,7 +1032,7 @@ class Rails31Tests < Test::Unit::TestCase
     assert_warning :type => :warning,
       :warning_type => "Remote Code Execution",
       :line => 18,
-      :message => /^Unsafe\ Reflection\ method\ constantize\ cal/,
+      :message => /^Unsafe\ reflection\ method\ constantize\ cal/,
       :confidence => 1,
       :file => /admin_controller\.rb/
   end
@@ -1032,5 +1068,114 @@ class Rails31Tests < Test::Unit::TestCase
       :message => /^Marshal\.restore\ called\ with\ model\ attrib/,
       :confidence => 1,
       :relative_path => "app/controllers/other_controller.rb"
+  end
+
+  def test_attr_accessible_with_role
+    assert_no_warning :type => :model,
+      :warning_code => 17,
+      :fingerprint => "77c353ad8e5fc9880775ed436bbfa37b005b43aa2978186de92b6916f46fac39",
+      :warning_type => "Mass Assignment",
+      :message => "Potentially dangerous attribute available for mass assignment: :admin",
+      :confidence => 0,
+      :relative_path => "app/models/user.rb"
+  end
+
+  def test_attr_accessible_not_matching_regex
+    assert_no_warning :type => :model,
+      :warning_code => 60,
+      :fingerprint => "e933f99c33bece852891a466b5b0fc629d9f20ba80ff3bbc42adfd239d5a5b48",
+      :warning_type => "Mass Assignment",
+      :message => "Potentially dangerous attribute available for mass assignment: :blah_admin_blah",
+      :confidence => 0,
+      :relative_path => "app/models/account.rb"
+  end
+
+  def test_wrong_model_attributes_in_haml
+    assert_no_warning :type => :template,
+      :warning_code => 2,
+      :fingerprint => "8851713f0af477e60090607b814ba68055e4ac1cf19df0628fddd961ff87e763",
+      :warning_type => "Cross Site Scripting",
+      :line => 3,
+      :message => /^Unescaped\ model\ attribute/,
+      :confidence => 0,
+      :relative_path => "app/views/other/test_model_in_haml.html.haml"
+  end
+
+  def test_right_model_attribute_in_haml
+    assert_warning :type => :template,
+      :warning_code => 2,
+      :fingerprint => "3310ef4a4bde8b120fd5d421565ee416af815404e7c116a8069052e8732589d0",
+      :warning_type => "Cross Site Scripting",
+      :line => 7,
+      :message => /^Unescaped\ model\ attribute/,
+      :confidence => 0,
+      :relative_path => "app/views/other/test_model_in_haml.html.haml"
+  end
+
+  def test_information_disclosure_detailed_exceptions_override
+    assert_warning :type => :warning,
+      :warning_code => 62,
+      :fingerprint => "16f60330426df3603595f5692c7b0916e38c8674a214fef45d7acf248a8db6b3",
+      :warning_type => "Information Disclosure",
+      :line => 29,
+      :message => /^Detailed\ exceptions\ may\ be\ enabled\ in\ 's/,
+      :confidence => 1,
+      :relative_path => "app/controllers/admin_controller.rb"
+  end
+
+  def test_command_injection_interpolation_inside_interpolation
+    assert_warning :type => :warning,
+      :warning_code => 14,
+      :fingerprint => "5ef09b79bf1d08ccd42e376238f9a618227da4990ea7702a1d4da2e83f4820fe",
+      :warning_type => "Command Injection",
+      :line => 34,
+      :message => /^Possible\ command\ injection/,
+      :confidence => 1,
+      :relative_path => "app/controllers/admin_controller.rb",
+      :user_input => s(:call, nil, :why?)
+  end
+
+  def test_command_injection_or_literal_system
+    assert_no_warning :type => :warning,
+      :warning_code => 14,
+      :fingerprint => "7de48cc753c090a61ac49a6885bc87198b1a7a72e5629eb2a188b671b95c7f13",
+      :warning_type => "Command Injection",
+      :line => 42,
+      :message => /^Possible\ command\ injection/,
+      :confidence => 1,
+      :relative_path => "app/controllers/admin_controller.rb"
+  end
+
+  def test_command_injection_or_literal_backticks
+    assert_no_warning :type => :warning,
+      :warning_code => 14,
+      :fingerprint => "a9ec8db240351f05e084a6acc9f7980d97718eb4cb386d9ea8079d224dfecef9",
+      :warning_type => "Command Injection",
+      :line => 43,
+      :message => /^Possible\ command\ injection/,
+      :confidence => 1,
+      :relative_path => "app/controllers/admin_controller.rb"
+  end
+
+  def test_command_injection_integer_command
+    assert_no_warning :type => :warning,
+      :warning_code => 14,
+      :fingerprint => "44d7403b6d2dfe4b74c32b80d924fed3d034637f0e13b3c31193ef9279a674f3",
+      :warning_type => "Command Injection",
+      :line => 45,
+      :message => /^Possible\ command\ injection/,
+      :confidence => 1,
+      :relative_path => "app/controllers/admin_controller.rb"
+  end
+
+  def test_command_injection_integer_exec
+    assert_no_warning :type => :warning,
+      :warning_code => 14,
+      :fingerprint => "11ab37cedddb3b4c9cd1c29db6b6ab8cd8a6a0063862448075cc22e9cd8b0882",
+      :warning_type => "Command Injection",
+      :line => 46,
+      :message => /^Possible\ command\ injection/,
+      :confidence => 1,
+      :relative_path => "app/controllers/admin_controller.rb"
   end
 end

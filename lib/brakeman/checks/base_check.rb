@@ -181,9 +181,30 @@ class Brakeman::BaseCheck < Brakeman::SexpProcessor
       #May need to revisit dependng on what Rails 4 actually does/has
       @mass_assign_disabled = true
     else
-      matches = tracker.check_initializers(:"ActiveRecord::Base", :send)
+      #Check for ActiveRecord::Base.send(:attr_accessible, nil)
+      tracker.check_initializers(:"ActiveRecord::Base", :attr_accessible).each do |result|
+        call = result.call
+        if call? call
+          if call.first_arg == Sexp.new(:nil)
+            @mass_assign_disabled = true
+            break
+          end
+        end
+      end
 
-      if matches.empty?
+      unless @mass_assign_disabled
+        tracker.check_initializers(:"ActiveRecord::Base", :send).each do |result|
+          call = result.call
+          if call? call
+            if call.first_arg == Sexp.new(:lit, :attr_accessible) and call.second_arg == Sexp.new(:nil)
+              @mass_assign_disabled = true
+              break
+            end
+          end
+        end
+      end
+
+      unless @mass_assign_disabled
         #Check for
         #  class ActiveRecord::Base
         #    attr_accessible nil
@@ -195,17 +216,6 @@ class Brakeman::BaseCheck < Brakeman::SexpProcessor
             arg = result.call.first_arg
 
             if arg.nil? or node_type? arg, :nil
-              @mass_assign_disabled = true
-              break
-            end
-          end
-        end
-      else
-        #Check for ActiveRecord::Base.send(:attr_accessible, nil)
-        matches.each do |result|
-          call = result.call
-          if call? call
-            if call.first_arg == Sexp.new(:lit, :attr_accessible) and call.second_arg == Sexp.new(:nil)
               @mass_assign_disabled = true
               break
             end
@@ -229,10 +239,11 @@ class Brakeman::BaseCheck < Brakeman::SexpProcessor
       end
 
       unless @mass_assign_disabled
-        matches = tracker.check_initializers(:"ActiveRecord::Base", :send)
+        matches = tracker.check_initializers(:"ActiveRecord::Base", [:send, :include])
 
         matches.each do |result|
-          if call? result.call and result.call.second_arg == forbidden_protection
+          call = result.call
+          if call? call and (call.first_arg == forbidden_protection or call.second_arg == forbidden_protection)
             @mass_assign_disabled = true
           end
         end
@@ -364,7 +375,11 @@ class Brakeman::BaseCheck < Brakeman::SexpProcessor
       if @safe_input_attributes.include? method
         false
       elsif call? target and not method.to_s[-1,1] == "?"
-        has_immediate_model? target, out
+        if res = has_immediate_model?(target, out)
+          exp
+        else
+          false
+        end
       elsif model_name? target
         exp
       else
@@ -417,37 +432,9 @@ class Brakeman::BaseCheck < Brakeman::SexpProcessor
     if exp.is_a? Symbol
       @models.include? exp
     elsif sexp? exp
-      klass = nil
-      begin
-        klass = class_name exp
-      rescue StandardError
-      end
-
-      klass and @models.include? klass
+      @models.include? class_name(exp)
     else
       false
-    end
-  end
-
-  #Finds entire method call chain where +target+ is a target in the chain
-  def find_chain exp, target
-    return unless sexp? exp
-
-    case exp.node_type
-    when :output, :format
-      find_chain exp.value, target
-    when :call
-      if exp == target or include_target? exp, target
-        return exp
-      end
-    else
-      exp.each do |e|
-        if sexp? e
-          res = find_chain e, target
-          return res if res
-        end
-      end
-      nil
     end
   end
 

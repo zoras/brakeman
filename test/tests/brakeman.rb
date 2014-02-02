@@ -36,9 +36,9 @@ class BaseCheckTests < Test::Unit::TestCase
     @check = Brakeman::BaseCheck.new app_tree, @tracker
   end
 
-  def version_between? version, high, low
+  def version_between? version, low, high
     @tracker.config = { :rails_version => version }
-    @check.send(:version_between?, high, low)
+    @check.send(:version_between?, low, high)
   end
 
   def test_version_between
@@ -205,10 +205,14 @@ class ConfigTests < Test::Unit::TestCase
 end
 
 class GemProcessorTests < Test::Unit::TestCase
-  FakeTracker = Struct.new(:config)
+  FakeTracker = Struct.new(:config, :options)
+
+  def assert_version version, name, msg = nil
+    assert_equal version, @tracker[:config][:gems][name], msg
+  end
 
   def setup 
-    @tracker = FakeTracker.new({}) 
+    @tracker = FakeTracker.new({}, {})
     @gem_processor = Brakeman::GemProcessor.new @tracker 
     @eol_representations = ["\r\n", "\n"] 
     @gem_locks = @eol_representations.inject({}) {|h, eol| 
@@ -216,13 +220,13 @@ class GemProcessorTests < Test::Unit::TestCase
     }
   end 
 
-  def test_get_version 
-    @gem_locks.each do |eol, gem_lock|      
-      assert_equal "4.3.1", @gem_processor.get_version("erubis", gem_lock), "Couldn't match gemlock with eol: #{eol}}"
-      assert_equal "3.2.1", @gem_processor.get_version("paperclip", gem_lock), "Couldn't match gemlock with eol: #{eol}"
-      assert_equal "3.2.1.rc2", @gem_processor.get_version("rails", gem_lock), "Couldn't match gemlock with eol: #{eol}"  
-      assert_equal "1.1", @gem_processor.get_version("simplecov", gem_lock), "Couldn't match gemlock with eol: #{eol}"
+  def test_gem_lock_parsing
+    @gem_locks.each do |eol, gem_lock|
+      @gem_processor.process_gems Sexp.new(:block), gem_lock
+      assert_version "4.3.1", :erubis, "Couldn't match gemlock with eol: #{eol}"
+      assert_version "3.2.1", :paperclip, "Couldn't match gemlock with eol: #{eol}"
+      assert_version "3.2.1.rc2", :rails, "Couldn't match gemlock with eol: #{eol}"  
+      assert_version "1.1", :simplecov, "Couldn't match gemlock with eol: #{eol}"
     end 
   end 
-
 end 

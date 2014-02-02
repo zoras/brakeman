@@ -1,3 +1,59 @@
+# Unreleased
+
+ * Parse exact versions from Gemfile.lock for all gems
+ * Ignore generators
+ * Update to RubyParser 3.3.0
+ * Fix false positives when SQL methods are not called on AR models (Aaron Bedra)
+ * Add check for uses of OpenSSL::SSL::VERIFY_NONE (Aaron Bedra)
+ * No longer raise exceptions if a class name cannot be determined
+ * Fingerprint attribute warnings individually (Case Taintor)
+
+# 2.3.1
+
+ * Fix check for CVE-2013-4491 (i18n XSS) to detect workaround
+ * Fix link for CVE-2013-6415 (number_to_currency)
+
+# 2.3.0
+
+ * Add check for Parameters#permit!
+ * Add check for CVE-2013-4491 (i18n XSS)
+ * Add check for CVE-2013-6414 (header DoS)
+ * Add check for CVE-2013-6415 (number_to_currency)
+ * Add check for CVE-2013-6416 (simple_format XSS)
+ * Add check for CVE-2013-6417 (query generation) 
+ * Fix typos in reflection and translate bug messages
+ * Collapse send/try calls 
+ * Fix Slim XSS false positives (Noah Davis)
+ * Whitelist `Model#create` for redirects
+ * Fix scoping issues with instance variables and blocks
+
+# 2.2.0 
+
+ * Reduce command injection false positives
+ * Use Rails version from Gemfile if it is available
+ * Only add routes with actual names
+ * Ignore redirects to models using friendly_id (AJ Ostrow) 
+ * Support scanning Rails engines (Geoffrey Hichborn)
+ * Add check for detailed exceptions in production
+
+# 2.1.2
+
+ * Do not attempt to load custom Haml filters
+ * Do not warn about `to_json` XSS in Rails 4
+ * Add --table-width option to set width of text reports (ssendev)
+ * Remove fuzzy matching on dangerous attr_accessible values
+
+# 2.1.1
+
+ * New warning code for dangerous attributes in attr_accessible
+ * Do not warn on attr_accessible using roles
+ * More accurate results for model attribute warnings
+ * Use exit code zero with `-z` if all warnings ignored
+ * Respect ignored warnings in rescans
+ * Ignore dynamic controller names in routes
+ * Fix infinite loop when run as rake task (Matthew Shanley)
+ * Respect ignored warnings in tabs format reports
+
 # 2.1.0
 
  * Support non-native line endings in Gemfile.lock (Paul Deardorff)
